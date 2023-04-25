@@ -1,0 +1,3 @@
+include src/bottle_suite/dist/*
+include src/bottle_suite/dist/_nuxt/*
+include src/bottle_suite/dist/resources/*
