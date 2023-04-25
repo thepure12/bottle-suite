@@ -1,0 +1,35 @@
+cors = true
+sqlite = "example.db"
+
+[jwt]
+jwt_key = "lj5qoVZf_VsWmjLV3Fw1JzsLm_C8Ttyj5-bR6H5QwP8"
+
+[resources.artists]
+paths = [ "/artists/<key>", "/artists/<ArtistId>",]
+
+[resources.playlist_track]
+paths = [ "/playlists/<playlist_id>/tracks",]
+
+[resources.invoice_items]
+paths = [ "/invoices/<invoice_id>/items",]
+
+[resources.albums]
+paths = [ "/albums/<key>/artist", "/albums", "/eps", "/cds",]
+
+[resources.artists.roles]
+get = true
+post = true
+put = false
+patch = false
+delete = false
+
+[resources.playlist_track.roles]
+get = true
+post = [ "admin", "user",]
+
+[resources.albums.roles]
+post = false
+put = true
+patch = false
+
+[resources.all.roles]
