@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-# TODO Add these imports to required packages and remove local imports
-from .plugins.bottle_rest import Resource
+from bottle_rest import Resource
 
 
 from typing import TYPE_CHECKING
