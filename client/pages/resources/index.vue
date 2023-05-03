@@ -50,6 +50,7 @@
 import { mapState } from "vuex";
 export default {
     name: "Resources",
+    middleware: "auth",
     data() {
         return {
             loading: true,

@@ -4,22 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bottle_suite"
-version = "0.0.12"
-authors = [
-  { name="TJ Renninger", email="renninger12@gmail.com" },
-]
+version = "0.0.15"
+authors = [{ name = "TJ Renninger", email = "renninger12@gmail.com" }]
 description = "bottle.py suite with CORS, SQL, REST, and JWT"
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
 ]
 dependencies = [
-  "PyJWT >= 2.6.0",
-  "PyMySQL >= 1.0.2",
-  "toml >= 0.10.2"
+  "bottle-restful >= 0.0.1",
+  "bottle-jwt3 >= 0.0.1",
+  "bottle-sql >= 0.0.1",
+  "bottle-cors2 >= 0.0.1",
+  "toml >= 0.10.2",
 ]
 
 [project.scripts]
