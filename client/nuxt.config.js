@@ -46,6 +46,7 @@ export default {
   modules: [
     // https://go.nuxtjs.dev/axios
     '@nuxtjs/axios',
+    '@nuxtjs/auth-next',
   ],
 
   generate: {
@@ -76,6 +77,32 @@ export default {
           error: colors.deepOrange.accent4,
           success: colors.green.accent3
         }
+      }
+    }
+  },
+
+  auth: {
+    redirect: {
+      home: '/login'
+    },
+    strategies: {
+      local: {
+        token: {
+          property: 'token',
+          maxAge: 0
+        },
+        endpoints: {
+          login: {
+            url: '/token',
+            method: 'post',
+          },
+          user: {
+            url: '/users/current',
+            method: 'get',
+            propertyName: 'user'
+          },
+          logout: false
+        },
       }
     }
   },

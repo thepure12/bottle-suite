@@ -19,7 +19,7 @@
                     </v-card-title>
                     <v-card-text>
                         <template v-for="key in editedItemKeys">
-                            <v-select v-if="key === 'type'" :key="key" :label="key" :disabled="doDisable(key)"
+                            <v-select v-if="key === 'type' && tab === 'Fields'" :key="key" :label="key" :disabled="doDisable(key)"
                                 v-model="editedItem[key]" :items="datatypes"></v-select>
                             <v-switch v-else-if="key === 'notnull'" :key="key" :disabled="doDisable(key)"
                                 v-model="editedItem[key]" :true-value="1" :false-value="0" class="v-input--reverse"

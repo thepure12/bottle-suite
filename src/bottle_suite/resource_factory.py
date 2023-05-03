@@ -39,9 +39,9 @@ def createResource(name, fields, sql=False):
                 )
                 sql += f" WHERE {filters}"
             query = db.execute(sql, bindings)
-            if sql:
+            try:
                 rows = query.fetchone() if key else {name: query.fetchall()}
-            else:
+            except:
                 rows = db.fetchone() if key else {name: db.fetchall()}
             if rows and len(rows):
                 return rows
