@@ -1,19 +1,11 @@
-# TODO Add these imports to required packages and remove local imports
-# from .bottle import Bottle
-# from .plugins.bottle_cors import EnableCors
-# from .plugins.bottle_rest import API, Resource
-# from .plugins.bottle_jwt import JWTPlugin
-# from .plugins.bottle_pymysql import PyMySQLPlugin, pymysql
-# from .plugins.bottle_sqlite import SQLitePlugin, sqlite3
-
 # Bottle and plugins
 from bottle import Bottle
 from bottle_cors import EnableCors
-from bottle_rest import API
+from bottle_rest import API, Resource
 from bottle_jwt import JWTPlugin
 from bottle_sql import sqlitePlugin, sqlPlugin
 
-#
+# Other imports
 from typing import Union
 import toml
 import os
@@ -21,6 +13,8 @@ import inspect
 from importlib import util
 from . import resource_factory, reload
 from .resources import AllResources, DataTypes
+import pymysql
+import sqlite3
 
 
 class BottleSuite(Bottle):
@@ -122,7 +116,7 @@ class BottleSuite(Bottle):
                 cfg["dbname"] = sql
             elif type(sql) == dict:
                 cfg = sql
-            self.sql = PyMySQLPlugin(keyword="db", **cfg)
+            self.sql = sqlPlugin(keyword="db", **cfg)
             self.install(self.sql)
         else:
             self.sql = None
@@ -131,10 +125,10 @@ class BottleSuite(Bottle):
         cfg = {}
         if sqlite:
             if type(sqlite) == str:
-                cfg["dbfile"] = sqlite
+                cfg["database"] = sqlite
             elif type(sqlite) == dict:
                 cfg = sqlite
-            self.sqlite = SQLitePlugin(**cfg)
+            self.sqlite = sqlitePlugin(**cfg)
             self.install(self.sqlite)
         else:
             self.sqlite = None
@@ -220,7 +214,7 @@ class BottleSuite(Bottle):
 
     def getDBTables(self) -> dict:
         if self.sqlite:
-            with sqlite3.connect(self.sqlite.dbfile) as db:
+            with sqlite3.connect(self.sqlite.sql_config["database"]) as db:
                 db.row_factory = lambda cursor, row: {
                     col[0]: row[idx] for idx, col in enumerate(cursor.description)
                 }
