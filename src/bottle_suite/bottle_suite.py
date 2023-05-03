@@ -1,10 +1,17 @@
 # TODO Add these imports to required packages and remove local imports
-from .bottle import Bottle
-from .plugins.bottle_cors import EnableCors
-from .plugins.bottle_rest import API, Resource
-from .plugins.bottle_jwt import JWTPlugin
-from .plugins.bottle_pymysql import PyMySQLPlugin, pymysql
-from .plugins.bottle_sqlite import SQLitePlugin, sqlite3
+# from .bottle import Bottle
+# from .plugins.bottle_cors import EnableCors
+# from .plugins.bottle_rest import API, Resource
+# from .plugins.bottle_jwt import JWTPlugin
+# from .plugins.bottle_pymysql import PyMySQLPlugin, pymysql
+# from .plugins.bottle_sqlite import SQLitePlugin, sqlite3
+
+# Bottle and plugins
+from bottle import Bottle
+from bottle_cors import EnableCors
+from bottle_rest import API
+from bottle_jwt import JWTPlugin
+from bottle_sql import sqlitePlugin, sqlPlugin
 
 #
 from typing import Union
@@ -31,14 +38,12 @@ class BottleSuite(Bottle):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        # print(os.getcwd())
         self.cfg_file = cfg_file
         self.run_args = run_args
         try:
             self.cfg = toml.load(cfg_file)
         except:
             self.cfg = {}
-        # print(self.cfg)
         if "cors" in self.cfg:
             cors = self.cfg["cors"]
         if "rest" in self.cfg:
@@ -100,6 +105,10 @@ class BottleSuite(Bottle):
             for path, callback in self.jwt.token_paths.items():
                 self.route("/" + path, "GET", callback)
                 self.route("/" + path, "POST", callback)
+                self.route("/" + path, "OPTIONS", callback)
+                self.route(
+                    "/users/current", ["OPTIONS", "GET"], lambda: {"user": "default"}
+                )
         else:
             self.jwt = None
 
@@ -237,12 +246,12 @@ class BottleSuite(Bottle):
                     }
 
     def createTable(self, name):
-        print(f"Creating table {name}")
         sql = f"""CREATE TABLE {name} (
                   {name}_id INTEGER PRIMARY KEY AUTOINCREMENT)"""
         if self.sqlite:
+            print(f"Creating table {name}")
             with sqlite3.connect(self.sqlite.dbfile) as db:
-                db.execute(sql)
+                created = db.execute(sql)
                 db.commit()
         self.reloadServer()
 
