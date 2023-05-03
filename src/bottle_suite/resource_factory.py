@@ -1,6 +1,6 @@
 # TODO Add these imports to required packages and remove local imports
-from .plugins.bottle_rest import Resource
-from .bottle import response
+from bottle_rest import Resource
+from bottle import response
 
 from pymysql import IntegrityError as SqlIntegrityError
 from sqlite3 import IntegrityError as SqliteIntegrityError
