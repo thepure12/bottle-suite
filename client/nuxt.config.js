@@ -50,7 +50,7 @@ export default {
   ],
 
   generate: {
-    dir: '../src/bottle_suite/dist'
+    dir: '../src/bottle_suite/dashboard/dist'
   },
 
   // Axios module configuration: https://go.nuxtjs.dev/config-axios
