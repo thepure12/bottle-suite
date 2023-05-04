@@ -13,7 +13,7 @@ MIN_PORT = 8000
 MAX_PORT = 8999
 KEY_LEN = 32
 TMP_DB = f"{Path(__file__).parent.resolve()}/tmp.db"
-dist = f"{Path(__file__).parent.parent.resolve()}/bottle_suite/dist"
+dist = f"{Path(__file__).parent.parent.resolve()}/bottle_suite/dashboard/dist"
 
 
 def checkPort(host, port):

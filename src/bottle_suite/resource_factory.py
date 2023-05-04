@@ -1,4 +1,3 @@
-# TODO Add these imports to required packages and remove local imports
 from bottle_rest import Resource
 from bottle import response
 
