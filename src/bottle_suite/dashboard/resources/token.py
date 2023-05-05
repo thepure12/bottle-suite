@@ -4,8 +4,10 @@ import hashlib
 class Token(Resource):
 
     @classmethod
-    def authenticate(cls, db, username, password):
-        print(type(db))
+    def authenticate(cls, username=None, password=None, **kwargs):
+        # print(type(db))
+        # TODO
+        return {"user": "user"}
         user: dict # TODO
         # TODO check if user exists
         salt_key = bytes.fromhex(user["password"])
@@ -22,7 +24,7 @@ class Token(Resource):
     def options(self, *args, **kwargs):
         pass
 
-    def post(self, db, username, password):
+    def post(self, username, password):
         pass
 
     def get(self):

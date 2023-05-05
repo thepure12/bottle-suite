@@ -34,7 +34,6 @@ class TestBottleSuite(unittest.TestCase):
     def setUp(self) -> None:
         self.bottle_suite = BottleSuite(gen_res=False)
         self.app = webtest.TestApp(self.bottle_suite)
-        
 
     def addTestResource(self):
         self.bottle_suite.rest.addResource(TestResource, "/test_resource")
@@ -53,7 +52,6 @@ class TestBottleSuite(unittest.TestCase):
         self.assertIn("DataTypes", self.bottle_suite.resource_names)
 
     def test_initNoRest(self):
-        self.addTestResource()
         self.bottle_suite = BottleSuite(rest=False)
         self.assertIsNone(next((p for p in self.bottle_suite.plugins if "API" in str(p)), None))
 
@@ -88,5 +86,12 @@ class TestBottleSuite(unittest.TestCase):
 
 
     # SQL
+    def test_initSQLite(self):
+        self.assertIsNotNone(self.bottle_suite.sqlite)
+
+    def test_initNoSQLite(self):
+        pass
+
+    
 
     # CORS
