@@ -1,4 +1,5 @@
 from bottle_suite import BottleSuite, bottle
+from bottle_suite.dashboard.resources.token import Token
 import socket
 import argparse
 import time
@@ -115,6 +116,7 @@ def main():
                 print(f"- Creating temp database @ {TMP_DB}")
             app = BottleSuite(**kwargs)
             if args.dashboard:
+                app.jwt.token_paths["token"] = Token.authenticate
                 app.route("/dashboard/_nuxt/<filename>", method="GET", callback=nuxt)
                 app.route(
                     ["/dashboard", "/dashboard<path:path>"],
