@@ -1,0 +1,12 @@
+sqlite = "resources.db"
+
+[jwt]
+jwt_key = "secret"
+
+[resources.test_resource.roles]
+options = false
+get = false
+post = false
+put = false
+patch = false
+delete = false
