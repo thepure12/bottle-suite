@@ -1,13 +1,9 @@
 from __future__ import annotations
-
 from bottle_rest import Resource
-
-
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .bottle_suite import BottleSuite
-
 
 SQLITE_TYPES = [
     "INT",
@@ -38,6 +34,14 @@ SQLITE_TYPES = [
     "DATETIME",
 ]
 
+class Config(Resource):
+    def __init__(self, app: BottleSuite) -> None:
+        super().__init__()
+        self.app = app
+
+    def get(self):
+        return self.app.cfg
+
 
 class DataTypes(Resource):
     def __init__(self, app: BottleSuite) -> None:
@@ -54,7 +58,7 @@ class AllResources(Resource):
         super().__init__()
         self.app = app
 
-    def options():
+    def options(self):
         pass
 
     def get(self, resource=None):

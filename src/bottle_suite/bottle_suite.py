@@ -12,7 +12,7 @@ import os
 import inspect
 from importlib import util
 from . import resource_factory, reload
-from .resources import AllResources, DataTypes
+from .resources import AllResources, DataTypes, Config
 import pymysql
 import pymysql.cursors
 import sqlite3
@@ -85,6 +85,7 @@ class BottleSuite(Bottle):
                 AllResources(self), "/_resources", "/_resources/<resource>"
             )
             self.rest.addResource(DataTypes(self), "/_datatypes")
+            self.rest.addResource(Config(self), "/bottle_suite_cfg")
         else:
             self.rest = None
 
