@@ -267,33 +267,6 @@ class BottleSuite(Bottle):
         conn.close()
         return tables
 
-    # def getDBTables(self) -> dict:
-    #     if self.sqlite:
-    #         with sqlite3.connect(self.sqlite.sql_config["database"]) as db:
-    #             db.row_factory = lambda cursor, row: {
-    #                 col[0]: row[idx] for idx, col in enumerate(cursor.description)
-    #             }
-    #             tables = db.execute(
-    #                 "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%PRIMARY%'"
-    #             ).fetchall()
-    #             return {
-    #                 table["name"]: self.getSqliteTable(db, table) for table in tables
-    #             }
-
-    #     elif self.sql:
-    #         with pymysql.connect(
-    #             host=self.sql.dbhost,
-    #             user=self.sql.dbuser,
-    #             password=self.sql.dbpass,
-    #             database=self.sql.dbname,
-    #         ) as conn:
-    #             with conn.cursor() as db:
-    #                 db.execute("SHOW TABLES")
-    #                 tables = db.fetchall()
-    #                 return {
-    #                     table[0]: self.getSqlTable(db, table[0]) for table in tables
-    #                 }
-
     def createTable(self, name):
         sql = f"""CREATE TABLE {name} (
                   {name}_id INTEGER PRIMARY KEY AUTOINCREMENT)"""

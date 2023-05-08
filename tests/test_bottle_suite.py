@@ -125,7 +125,7 @@ class TestBottleSuite(unittest.TestCase):
         self.app = webtest.TestApp(self.bottle_suite)
         self.assertIn("Animals", self.bottle_suite.resource_names)
         self.assertIn("Predations", self.bottle_suite.resource_names)
-        print(self.bottle_suite.routes)
         self.assertEqual("dog", self.app.get("/animals/1").json["name"])
+        self.assertEqual(6, self.app.get("/predations/1").json["predator"])
 
     # CORS
