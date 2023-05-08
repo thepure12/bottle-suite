@@ -1,6 +1,5 @@
 from bottle_rest import Resource
 from bottle import response
-
 from pymysql import IntegrityError as SqlIntegrityError
 from sqlite3 import IntegrityError as SqliteIntegrityError
 from enum import Enum
@@ -13,11 +12,6 @@ class PatchData(Enum):
 
 def createResource(name, fields, sql=False):
     class ChildResource(Resource):
-        # key = (
-        #     next((f["field"] for f in fields if f["key"] == "PRI"), None)
-        #     if sql
-        #     else next((f["name"] for f in fields if f["pk"]), None)
-        # )
         key = next((f["name"] for f in fields if f["key"] == 1), None)
         bind_char = "%s" if sql else "?"
         table = name
