@@ -3,6 +3,9 @@ sqlite = "resources.db"
 [jwt]
 jwt_key = "secret"
 
+[resources.animals]
+paths = [ "/nmls",]
+
 [resources.test_resource.roles]
 options = false
 get = false

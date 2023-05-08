@@ -78,7 +78,6 @@ class BottleSuite(Bottle):
         if rest:
             self.rest = API()
             self.install(self.rest)
-            print(os.getcwd())
             if gen and os.path.exists(os.getcwd() + "/resources"):
                 for py_file in os.listdir(os.getcwd() + "/resources"):
                     self.importResourcesFromFile(py_file)
