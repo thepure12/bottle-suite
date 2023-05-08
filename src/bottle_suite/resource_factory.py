@@ -13,11 +13,12 @@ class PatchData(Enum):
 
 def createResource(name, fields, sql=False):
     class ChildResource(Resource):
-        key = (
-            next((f["field"] for f in fields if f["key"] == "PRI"), None)
-            if sql
-            else next((f["name"] for f in fields if f["pk"]), None)
-        )
+        # key = (
+        #     next((f["field"] for f in fields if f["key"] == "PRI"), None)
+        #     if sql
+        #     else next((f["name"] for f in fields if f["pk"]), None)
+        # )
+        key = next((f["name"] for f in fields if f["key"] == 1), None)
         bind_char = "%s" if sql else "?"
         table = name
         _name = "".join([x.capitalize() for x in re.split(", |_|-|!", name)])

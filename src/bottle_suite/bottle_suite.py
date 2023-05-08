@@ -2,7 +2,7 @@
 from bottle import Bottle
 from bottle_cors import EnableCors
 from bottle_rest import API, Resource
-from bottle_jwt import JWTPlugin
+from bottle_jwt import JWTPlugin, authFunc
 from bottle_sql import sqlitePlugin, sqlPlugin
 
 # Other imports
@@ -14,6 +14,7 @@ from importlib import util
 from . import resource_factory, reload
 from .resources import AllResources, DataTypes
 import pymysql
+import pymysql.cursors
 import sqlite3
 
 
@@ -50,6 +51,7 @@ class BottleSuite(Bottle):
             sql = self.cfg["sql"]
         self.setupCors(cors)
         if sql and sqlite:
+            # TODO allow multiple databases
             raise Exception("Cannot use both sql and sqlite")
         self.setupSql(sql)
         self.setupSqlite(sqlite)
@@ -134,6 +136,11 @@ class BottleSuite(Bottle):
         else:
             self.sqlite = None
 
+    def setTokenAuthFunction(self, func=None, token_path="token"):
+        if not func:
+            func = authFunc
+        self.jwt.token_paths[token_path] = func
+
     def importResourcesFromFile(self, py_file):
         module_name = py_file[:-3]
         if module_name == "__init__" or py_file[-3:] != ".py":
@@ -175,7 +182,7 @@ class BottleSuite(Bottle):
 
     def createResForDB(self):
         rules = {r.rule for r in self.routes}
-        if self.rest:
+        if self.rest and (self.sql or self.sqlite):
             for table, fields in self.getDBTables().items():
                 resource = resource_factory.createResource(table, fields, self.sql)
                 self.setRoles(resource, table)
@@ -213,32 +220,79 @@ class BottleSuite(Bottle):
     def getSqliteTable(self, db, table):
         return db.execute(f"PRAGMA table_info('{table['name']}')").fetchall()
 
-    def getDBTables(self) -> dict:
-        if self.sqlite:
-            with sqlite3.connect(self.sqlite.sql_config["database"]) as db:
-                db.row_factory = lambda cursor, row: {
-                    col[0]: row[idx] for idx, col in enumerate(cursor.description)
-                }
-                tables = db.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%PRIMARY%'"
-                ).fetchall()
-                return {
-                    table["name"]: self.getSqliteTable(db, table) for table in tables
-                }
+    def getDBTable(self, db, table: str) -> list:
+        keys = {
+            None: 0,
+            "PRI": 1,
+        }
+        try:
+            db.execute(f"PRAGMA table_info('{table}')")
+        except:
+            db.execute(f"DESCRIBE {table}")
+        return [
+            {
+                "name": r.get("name") or r.get("Field"),
+                "type": r.get("type") or r.get("Type"),
+                "notnull": r.get("notnull") == 1 or r.get("Null") == "NO",
+                "default": r.get("dflt_value") or r.get("Default"),
+                "key": r.get("pk") or keys[r.get("Key")],
+            }
+            for r in db.fetchall()
+        ]
 
-        elif self.sql:
-            with pymysql.connect(
+    def getDBTables(self) -> dict:
+        try:
+            conn = sqlite3.connect(self.sqlite.sql_config["database"])
+            conn.row_factory = lambda cursor, row: {
+                col[0]: row[idx] for idx, col in enumerate(cursor.description)
+            }
+        except:
+            conn = pymysql.connect(
                 host=self.sql.dbhost,
                 user=self.sql.dbuser,
                 password=self.sql.dbpass,
                 database=self.sql.dbname,
-            ) as conn:
-                with conn.cursor() as db:
-                    db.execute("SHOW TABLES")
-                    tables = db.fetchall()
-                    return {
-                        table[0]: self.getSqlTable(db, table[0]) for table in tables
-                    }
+                cursorclass=pymysql.cursors.DictCursor
+            )
+        db = conn.cursor()
+        if isinstance(db, sqlite3.Cursor):
+            tables_sql = "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%PRIMARY%'"
+        elif isinstance(db, pymysql.cursors.Cursor):
+            tables_sql = "SHOW TABLES"
+        db.execute(tables_sql)
+        table_rows = db.fetchall()
+        name = lambda table: table.get("name") or table.get("Name")
+        tables = {name(table): self.getDBTable(db, name(table)) for table in table_rows}
+        db.close()
+        conn.close()
+        return tables
+
+    # def getDBTables(self) -> dict:
+    #     if self.sqlite:
+    #         with sqlite3.connect(self.sqlite.sql_config["database"]) as db:
+    #             db.row_factory = lambda cursor, row: {
+    #                 col[0]: row[idx] for idx, col in enumerate(cursor.description)
+    #             }
+    #             tables = db.execute(
+    #                 "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%PRIMARY%'"
+    #             ).fetchall()
+    #             return {
+    #                 table["name"]: self.getSqliteTable(db, table) for table in tables
+    #             }
+
+    #     elif self.sql:
+    #         with pymysql.connect(
+    #             host=self.sql.dbhost,
+    #             user=self.sql.dbuser,
+    #             password=self.sql.dbpass,
+    #             database=self.sql.dbname,
+    #         ) as conn:
+    #             with conn.cursor() as db:
+    #                 db.execute("SHOW TABLES")
+    #                 tables = db.fetchall()
+    #                 return {
+    #                     table[0]: self.getSqlTable(db, table[0]) for table in tables
+    #                 }
 
     def createTable(self, name):
         sql = f"""CREATE TABLE {name} (
