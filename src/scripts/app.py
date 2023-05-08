@@ -1,5 +1,6 @@
 from bottle_suite import BottleSuite, bottle
 from bottle_suite.dashboard.resources.token import Token
+import bottle_jwt
 import socket
 import argparse
 import time
@@ -116,7 +117,9 @@ def main():
                 print(f"- Creating temp database @ {TMP_DB}")
             app = BottleSuite(**kwargs)
             if args.dashboard:
-                app.jwt.token_paths["token"] = Token.authenticate
+                if app.jwt.token_paths["token"] == bottle_jwt.authFunc:
+                    # If using dashboard and not auth function is set, override the default one
+                    app.jwt.token_paths["token"] = Token.authenticate
                 app.route("/dashboard/_nuxt/<filename>", method="GET", callback=nuxt)
                 app.route(
                     ["/dashboard", "/dashboard<path:path>"],
