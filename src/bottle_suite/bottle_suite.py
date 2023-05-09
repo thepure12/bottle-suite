@@ -1,5 +1,5 @@
 # Bottle and plugins
-from bottle import Bottle
+from bottle import Bottle, JSONPlugin
 from bottle_cors import EnableCors
 from bottle_rest import API, Resource
 from bottle_jwt import JWTPlugin, authFunc
@@ -16,6 +16,18 @@ from .resources import AllResources, DataTypes, Config
 import pymysql
 import pymysql.cursors
 import sqlite3
+import json
+import datetime
+from decimal import Decimal
+
+
+class JSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime) or isinstance(obj, datetime.date):
+            return obj.isoformat()
+        elif isinstance(obj, Decimal):
+            return f"{obj:.4f}"
+        return json.JSONEncoder.default(self, obj)
 
 
 class BottleSuite(Bottle):
@@ -32,7 +44,12 @@ class BottleSuite(Bottle):
         run_args: dict = {},
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        super().__init__(autojson=False, **kwargs)
+        if kwargs.get("autojson") != False:
+            json_plugin = JSONPlugin(
+                json_dumps=lambda s: json.dumps(s, cls=JSONEncoder)
+            )
+            self.install(json_plugin)
         self.cfg_file = cfg_file
         self.run_args = run_args
         try:
