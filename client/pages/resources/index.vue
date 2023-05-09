@@ -1,7 +1,7 @@
 <template>
     <v-card :loading="loading">
         <v-toolbar color="light-blue" dark>
-            <v-toolbar-title>Resources</v-toolbar-title>
+            <v-toolbar-title>Database Resources</v-toolbar-title>
             <v-spacer></v-spacer>
             <v-btn icon @click="dialogAdd = true">
                 <v-icon color="white">mdi-plus-circle</v-icon>

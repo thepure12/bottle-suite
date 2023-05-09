@@ -21,6 +21,7 @@
     </v-app-bar>
     <v-main>
       <v-container>
+        <Toast ref="vtoast" />
         <Nuxt />
       </v-container>
     </v-main>
@@ -31,6 +32,8 @@
 </template>
 
 <script>
+import Toast from '~/components/Toast.vue';
+
 export default {
   data() {
     return {
@@ -39,20 +42,29 @@ export default {
       fixed: false,
       items: [
         {
-          icon: 'mdi-apps',
-          title: 'Welcome',
-          to: '/'
+          icon: "mdi-apps",
+          title: "Welcome",
+          to: "/"
         },
         {
-          icon: 'mdi-package-variant-closed',
-          title: "Resources",
+          icon: "mdi-package-variant-closed",
+          title: "DB Resources",
           to: "/resources"
+        },
+        {
+          icon: "mdi-cog",
+          title: "Config",
+          to: "/config"
         }
       ],
       miniVariant: false,
-      title: 'Bottle Suite'
-    }
-  }
+      title: "Bottle Suite"
+    };
+  },
+  mounted() {
+    this.$root.vtoast = this.$refs.vtoast;
+  },
+  components: { Toast }
 }
 </script>
 <style>
@@ -71,7 +83,8 @@ export default {
   margin-right: 8px;
 }
 
-.v-input--reverse .v-input__slot > .v-label, .v-input--selection-controls .v-radio > .v-label {
+.v-input--reverse .v-input__slot>.v-label,
+.v-input--selection-controls .v-radio>.v-label {
   flex: none;
 }
 </style>
