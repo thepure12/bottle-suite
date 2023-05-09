@@ -35,7 +35,7 @@ def dashboard(path=""):
 
 
 def nuxt(filename):
-    print(filename)
+    # print(filename)
     return bottle.static_file(filename, f"{dist}/_nuxt")
 
 
