@@ -116,10 +116,10 @@ class BottleSuite(Bottle):
                 lambda x: x == b"\x01"
             )
             if type(sql) == str:
-                cfg["dbname"] = sql
+                cfg["database"] = sql
             elif type(sql) == dict:
                 cfg = sql
-            self.sql = sqlPlugin(keyword="db", **cfg)
+            self.sql = sqlPlugin(**cfg)
             self.install(self.sql)
         else:
             self.sql = None
@@ -223,7 +223,10 @@ class BottleSuite(Bottle):
     def getDBTable(self, db, table: str) -> list:
         keys = {
             None: 0,
+            "": 0,
             "PRI": 1,
+            "MUL": 0,  # TODO
+            "UNI": 0,  # TODO
         }
         try:
             db.execute(f"PRAGMA table_info('{table}')")
@@ -248,17 +251,17 @@ class BottleSuite(Bottle):
             }
         except:
             conn = pymysql.connect(
-                host=self.sql.dbhost,
-                user=self.sql.dbuser,
-                password=self.sql.dbpass,
-                database=self.sql.dbname,
-                cursorclass=pymysql.cursors.DictCursor
+                host=self.sql.sql_config["host"],
+                user=self.sql.sql_config["user"],
+                password=self.sql.sql_config["password"],
+                database=self.sql.sql_config["database"],
+                cursorclass=pymysql.cursors.DictCursor,
             )
         db = conn.cursor()
         if isinstance(db, sqlite3.Cursor):
             tables_sql = "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%PRIMARY%'"
         elif isinstance(db, pymysql.cursors.Cursor):
-            tables_sql = "SHOW TABLES"
+            tables_sql = f"SELECT table_name as name FROM information_schema.tables WHERE table_schema = '{self.sql.sql_config['database']}'"
         db.execute(tables_sql)
         table_rows = db.fetchall()
         name = lambda table: table.get("name") or table.get("Name")

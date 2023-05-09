@@ -10,4 +10,6 @@ class TestResourceFactory(unittest.TestCase):
         pass
 
     def test_createSQLiteResource(self):
+        fields = []
+        resource = resource_factory.createResource("TestResource", fields, sql=True)
         pass
