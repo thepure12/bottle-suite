@@ -101,10 +101,10 @@ def main():
         "jwt": args.jwt,
         "sqlite": args.sqlite,
         "sql": {
-            "dbhost": args.dbhost,
-            "dbname": args.dbname,
-            "dbuser": args.dbuser,
-            "dbpass": args.dbpass,
+            "host": args.dbhost,
+            "database": args.dbname,
+            "user": args.dbuser,
+            "password": args.dbpass,
         }
         if args.dbhost
         else False,

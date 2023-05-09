@@ -1,5 +1,5 @@
 from bottle_suite import Resource
-from bottle_suite.bottle import response, request, redirect
+from bottle import response, request, redirect
 
 
 class HelloWorld(Resource):
