@@ -1,6 +1,8 @@
 from __future__ import annotations
 from bottle_rest import Resource
+import toml
 from typing import TYPE_CHECKING
+from bottle import response
 
 if TYPE_CHECKING:
     from .bottle_suite import BottleSuite
@@ -39,14 +41,28 @@ class Config(Resource):
         super().__init__()
         self.app = app
 
-    def get(self):
-        return self.app.cfg
+    def options(self):
+        pass
 
+    def get(self):
+        return toml.dumps(self.app.cfg)
+
+    def put(self, config):
+        try:
+            config = toml.loads(config)
+            self.app.cfg = config
+            self.app.saveConfig()
+        except Exception as e:
+            response.status = 400
+            return {"message": str(e)}
 
 class DataTypes(Resource):
     def __init__(self, app: BottleSuite) -> None:
         super().__init__()
         self.app = app
+
+    def options(self):
+        pass
 
     def get(self):
         if self.app.sqlite:
