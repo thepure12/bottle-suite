@@ -141,7 +141,7 @@ def main():
             print(f"{e} {args.sqlite}".capitalize())
             break
         except pymysql.err.OperationalError as e:
-            print(f"{e} {args.sqlite}".capitalize())
+            print(f"{e} {kwargs['sql']}")
             break
         except Exception as e:
             print(f"{type(e)} {e}")

@@ -52,6 +52,7 @@ class Config(Resource):
             config = toml.loads(config)
             self.app.cfg = config
             self.app.saveConfig()
+            self.app.reloadServer()
         except Exception as e:
             response.status = 400
             return {"message": str(e)}
@@ -70,6 +71,9 @@ class DataTypes(Resource):
 
 
 class AllResources(Resource):
+
+    
+
     def __init__(self, app: BottleSuite) -> None:
         super().__init__()
         self.app = app

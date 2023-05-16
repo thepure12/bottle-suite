@@ -6,6 +6,20 @@ from enum import Enum
 import re
 
 
+FOREIGN_KEY_SQL = """
+    select distinct
+        c.table_name,
+        c.column_name,
+        c.referenced_table_name, 
+        c.referenced_column_name 
+    from information_schema.table_constraints fk
+    join information_schema.key_column_usage c 
+    on c.constraint_name = fk.constraint_name
+    where fk.constraint_type = 'FOREIGN KEY'
+        and c.table_name = 
+"""
+REPLACE_TEXT = ["_id", "_ID", "_iD", "-id", "-ID", "-iD", "id", "ID", "Id"]
+
 class PatchData(Enum):
     UNCHANGED = 1
 
@@ -16,11 +30,34 @@ def createResource(name, fields, sql=False):
         bind_char = "%s" if sql else "?"
         table = name
         _name = "".join([x.capitalize() for x in re.split(", |_|-|!", name)])
+        refs = {}
+
+        def getRefs(self, db, row, table, levels=1):
+            if levels > 1:
+                levels -= 1
+                _refs = self.refs.get(table) # Get cached references
+                if not _refs:
+                    db.execute(FOREIGN_KEY_SQL + f"'{table}'")
+                    _refs = db.fetchall()
+                    self.refs[table] = _refs
+                for ref in _refs:
+                    table, col, ref_table, ref_col = tuple(ref.values())
+                    if not row[col]:
+                        continue
+                    sql = f"select * from {ref_table} where {ref_col}=%s"
+                    db.execute(sql, ({row[col]},))
+                    row.pop(col)
+                    for t in REPLACE_TEXT:
+                        col = col.replace(t, "")
+                    ref_row = db.fetchone()
+                    self.getRefs(db, ref_row, ref_table, levels)
+                    row[col] = ref_row
 
         def options(self):
             pass
 
         def get(self, db, key=None):
+            levels = int(self.params.pop("levels", 1))
             bindings = ()
             sql = f"""SELECT * FROM {name}"""
             if key:
@@ -34,10 +71,16 @@ def createResource(name, fields, sql=False):
                 sql += f" WHERE {filters}"
             query = db.execute(sql, bindings)
             try:
-                rows = query.fetchone() if key else {name: query.fetchall()}
+                rows = query.fetchone() if key else query.fetchall()
             except:
-                rows = db.fetchone() if key else {name: db.fetchall()}
-            if rows and len(rows):
+                rows = db.fetchone() if key else db.fetchall()
+            if rows:
+                if isinstance(rows, list):
+                    for row in rows:
+                        self.getRefs(db, row, name, levels)
+                    rows = {name: rows}
+                else:
+                    self.getRefs(db, rows, name, levels)
                 return rows
             else:
                 response.status = 404
