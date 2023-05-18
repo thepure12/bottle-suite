@@ -20,6 +20,7 @@ FOREIGN_KEY_SQL = """
 """
 REPLACE_TEXT = ["_id", "_ID", "_iD", "-id", "-ID", "-iD", "id", "ID", "Id"]
 
+
 class PatchData(Enum):
     UNCHANGED = 1
 
@@ -30,33 +31,45 @@ def createResource(name, fields, sql=False):
         bind_char = "%s" if sql else "?"
         table = name
         _name = "".join([x.capitalize() for x in re.split(", |_|-|!", name)])
-        refs = {}
+        refs = {}  # reference table cache
 
-        def getRefs(self, db, row, table, levels=1):
-            if levels > 1:
+        def getRefs(self, db, table, row: dict = None, levels=1) -> dict | None:
+            # TODO clean this up
+            if levels > 1 or not row:
                 levels -= 1
-                _refs = self.refs.get(table) # Get cached references
+                _refs = self.refs.get(table)  # Get cached references
                 if not _refs:
                     db.execute(FOREIGN_KEY_SQL + f"'{table}'")
                     _refs = db.fetchall()
                     self.refs[table] = _refs
-                for ref in _refs:
-                    table, col, ref_table, ref_col = tuple(ref.values())
-                    if not row[col]:
-                        continue
-                    sql = f"select * from {ref_table} where {ref_col}=%s"
-                    db.execute(sql, ({row[col]},))
-                    row.pop(col)
-                    for t in REPLACE_TEXT:
-                        col = col.replace(t, "")
-                    ref_row = db.fetchone()
-                    self.getRefs(db, ref_row, ref_table, levels)
-                    row[col] = ref_row
+                if row:
+                    for ref in _refs:
+                        table, col, ref_table, ref_col = tuple(ref.values())
+                        if not row[col]:
+                            continue
+                        sql = f"select * from {ref_table} where {ref_col}=%s"
+                        db.execute(sql, ({row[col]},))
+                        row.pop(col)
+                        for t in REPLACE_TEXT:
+                            col = col.replace(t, "")
+                        ref_row = db.fetchone()
+                        self.getRefs(db, ref_table, ref_row, levels)
+                        row[col] = ref_row
+                return _refs
 
         def options(self):
             pass
 
-        def get(self, db, key=None):
+        def get(self, db, key=None, ref_table=None, ref_id=None):
+            if ref_table:
+                _refs = self.getRefs(db, name)
+                print(_refs)
+                ref_col = next(
+                    (r for r in _refs if r["referenced_table_name"] == ref_table),
+                    {},
+                ).get("referenced_column_name")
+                if ref_col:
+                    self.params[ref_col] = ref_id
             levels = int(self.params.pop("levels", 1))
             bindings = ()
             sql = f"""SELECT * FROM {name}"""
@@ -77,10 +90,10 @@ def createResource(name, fields, sql=False):
             if rows:
                 if isinstance(rows, list):
                     for row in rows:
-                        self.getRefs(db, row, name, levels)
+                        self.getRefs(db, name, row, levels)
                     rows = {name: rows}
                 else:
-                    self.getRefs(db, rows, name, levels)
+                    self.getRefs(db, name, rows, levels)
                 return rows
             else:
                 response.status = 404
@@ -143,6 +156,7 @@ def createResource(name, fields, sql=False):
             )
             setattr(cls, _name.lower(), locals().get("func"))
 
+    # TODO this is likely legacy, probably should remove if
     if sql:
         ChildResource.createFunction("post")
         ChildResource.createFunction("put")
