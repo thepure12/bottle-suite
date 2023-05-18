@@ -208,6 +208,9 @@ class BottleSuite(Bottle):
                     endpoints = [f"/{table}"]
                 if resource.key and f"/{table}/<key>" not in rules:
                     endpoints.append(f"/{table}/<key>")
+                # TODO Check resource to see if this rule is needed
+                if f"/<ref_table>/<ref_id>/{table}" not in rules:
+                    endpoints.append(f"/<ref_table>/<ref_id>/{table}")
                 try:
                     for path in self.cfg["resources"][table]["paths"]:
                         if path not in rules:
