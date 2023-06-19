@@ -49,3 +49,25 @@ optional arguments:
   -r               Automatic reloading
   -d               Enable dashboard
 ```
+
+### Import
+app.py
+```python
+from bottle_suite import BottleSuite
+
+app = BottleSuite()
+app.run(reloader=True)
+```
+
+## Resources
+### Resource Folder
+Bottle Suite will attempt to automatically find Resources objects in a resource folder in the working directory and create endpoints for them. By default it will look for a folder named "resources". All ".py" files in the folder will be scanned for Resource objects.
+
+#### Example Project Structure
+```
+├── src
+│   ├── resources
+│   │   ├── resource_a.py
+|   |   ├── resource_b.py
+│   ├── app.py
+```
