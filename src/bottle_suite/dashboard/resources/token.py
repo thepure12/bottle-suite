@@ -1,7 +1,7 @@
-from bottle_suite import Resource
+from bottle_rest import Resource
 import hashlib
 
-class Token(Resource):
+class DashboardToken(Resource):
 
     @classmethod
     def authenticate(cls, username=None, password=None, **kwargs):
