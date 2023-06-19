@@ -1,6 +1,4 @@
 from bottle_suite import BottleSuite, bottle
-from bottle_suite.dashboard.resources.token import Token
-import bottle_jwt
 import socket
 import argparse
 import time
@@ -57,12 +55,13 @@ def main():
     )
     parser.add_argument(
         "--jwt",
+        nargs="?",
         type=str,
         help="JWT key",
-        default="".join(
+        const="".join(
             secrets.choice(letters + digits + punctuation) for i in range(KEY_LEN)
         ),
-        metavar="JWT_KEY"
+        metavar="JWT_KEY",
     )
     parser.add_argument(
         "--sqlite",
@@ -70,7 +69,7 @@ def main():
         type=str,
         help=f"Path to SQLite database (default: {TMP_DB})",
         const=TMP_DB,
-        metavar="PATH"
+        metavar="PATH",
     )
     parser.add_argument("--dbhost", type=str, help="SQL database host")
     parser.add_argument("--dbname", type=str, help="SQL database name")
@@ -108,24 +107,24 @@ def main():
         }
         if args.dbhost
         else False,
+        "dashboard": args.dashboard,
     }
     run_args = {"host": args.host, "port": args.port, "reloader": args.reloader}
     while True:
         try:
-            print(f"- Using JWT key: {args.jwt}")
+            if args.jwt:
+                print(f"- Using JWT key: {args.jwt}")
+            elif args.dashboard:
+                token = "".join(
+                    secrets.choice(letters + digits + punctuation)
+                    for i in range(KEY_LEN)
+                )
+                kwargs["jwt"] = token
+                print(f"- Using JWT key: {token}")
             if args.sqlite == TMP_DB:
                 print(f"- Creating temp database @ {TMP_DB}")
             app = BottleSuite(**kwargs)
             if args.dashboard:
-                if app.jwt.token_paths["token"] == bottle_jwt.authFunc:
-                    # If using dashboard and not auth function is set, override the default one
-                    app.jwt.token_paths["token"] = Token.authenticate
-                app.route("/dashboard/_nuxt/<filename>", method="GET", callback=nuxt)
-                app.route(
-                    ["/dashboard", "/dashboard<path:path>"],
-                    method="GET",
-                    callback=dashboard,
-                )
                 print(f"- View dashboard @ http://{args.host}:{args.port}/dashboard")
             app.run(**run_args)
             if args.sqlite == TMP_DB:

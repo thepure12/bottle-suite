@@ -1,5 +1,5 @@
 # Bottle and plugins
-from bottle import Bottle, JSONPlugin
+from bottle import Bottle, JSONPlugin, static_file
 from bottle_cors import EnableCors
 from bottle_rest import API, Resource
 from bottle_jwt import JWTPlugin, authFunc
@@ -13,12 +13,27 @@ import inspect
 from importlib import util
 from . import resource_factory, reload
 from .resources import AllResources, DataTypes, Config
+from .dashboard.resources.token import DashboardToken
 import pymysql
 import pymysql.cursors
 import sqlite3
 import json
 import datetime
 from decimal import Decimal
+from pathlib import Path
+
+
+DIST = f"{Path(__file__).parent.parent.resolve()}/bottle_suite/dashboard/dist"
+
+
+def dashboard(path=""):
+    # print(dist)
+    return static_file("index.html", DIST)
+
+
+def nuxt(filename):
+    # print(filename)
+    return static_file(filename, f"{DIST}/_nuxt")
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -41,6 +56,7 @@ class BottleSuite(Bottle):
         gen_db: bool = True,
         gen_res: bool = True,
         cfg_file: str = "bottle_suite.toml",
+        dashboard: bool = False,
         run_args: dict = {},
         **kwargs,
     ):
@@ -56,6 +72,7 @@ class BottleSuite(Bottle):
             self.cfg = toml.load(cfg_file)
         except:
             self.cfg = {}
+        dashboard = self.cfg.get("dashboard", dashboard)
         if "cors" in self.cfg:
             cors = self.cfg["cors"]
         if "rest" in self.cfg:
@@ -73,6 +90,7 @@ class BottleSuite(Bottle):
         self.setupSql(sql)
         self.setupSqlite(sqlite)
         self.setupJwt(jwt)
+        self.setupDashboard(dashboard)
         self.setupRest(rest, gen_res)
         if gen_db and (sql or sqlite):
             self.createResForDB()
@@ -83,6 +101,18 @@ class BottleSuite(Bottle):
             return set([r.name for r in self.rest.resources])
         except:
             return set()
+
+    def setupDashboard(self, use_dashboard: bool):
+        if use_dashboard:
+            if self.jwt.token_paths["token"] == authFunc:
+                # If using dashboard and not auth function is set, override the default one
+                self.jwt.token_paths["token"] = DashboardToken.authenticate
+            self.route("/dashboard/_nuxt/<filename>", method="GET", callback=nuxt)
+            self.route(
+                ["/dashboard", "/dashboard<path:path>"],
+                method="GET",
+                callback=dashboard,
+            )
 
     def setupCors(self, cors):
         if cors:
@@ -208,6 +238,7 @@ class BottleSuite(Bottle):
                     endpoints = [f"/{table}"]
                 if resource.key and f"/{table}/<key>" not in rules:
                     endpoints.append(f"/{table}/<key>")
+                # endpoints += self.getRefEndpoints(table)
                 # TODO Check resource to see if this rule is needed
                 if f"/<ref_table>/<ref_id>/{table}" not in rules:
                     endpoints.append(f"/<ref_table>/<ref_id>/{table}")
@@ -222,6 +253,35 @@ class BottleSuite(Bottle):
         else:
             # TODO raise error
             pass
+
+    def getRefEndpoints(self, table):
+        sql = resource_factory.FOREIGN_KEY_SQL + f"'{table}'"
+        db = self.getDBCursor()
+        db.execute(sql)
+        refs = db.fetchall()
+        endpoints = []
+        for ref in refs:
+            if ref["referenced_table_name"] != ref["table_name"]:
+                e = f"/{ref['referenced_table_name']}/<{ref['referenced_column_name']}>/{table}"
+                endpoints.append(e)
+        return endpoints
+
+    def getDBCursor(self) -> pymysql.cursors.Cursor | sqlite3.Cursor:
+        try:
+            conn = sqlite3.connect(self.sqlite.sql_config["database"])
+            conn.row_factory = lambda cursor, row: {
+                col[0]: row[idx] for idx, col in enumerate(cursor.description)
+            }
+        except:
+            conn = pymysql.connect(
+                host=self.sql.sql_config["host"],
+                user=self.sql.sql_config["user"],
+                password=self.sql.sql_config["password"],
+                database=self.sql.sql_config["database"],
+                cursorclass=pymysql.cursors.DictCursor,
+            )
+        db = conn.cursor()
+        return db
 
     def getSqlTable(self, db, table) -> list:
         db.execute(f"DESCRIBE {table}")

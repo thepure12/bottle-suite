@@ -63,13 +63,15 @@ def createResource(name, fields, sql=False):
         def get(self, db, key=None, ref_table=None, ref_id=None):
             if ref_table:
                 _refs = self.getRefs(db, name)
-                print(_refs)
                 ref_col = next(
                     (r for r in _refs if r["referenced_table_name"] == ref_table),
                     {},
                 ).get("referenced_column_name")
                 if ref_col:
                     self.params[ref_col] = ref_id
+                else:
+                    response.status = 404
+                    return {"message": "Resource not found"}
             levels = int(self.params.pop("levels", 1))
             bindings = ()
             sql = f"""SELECT * FROM {name}"""
