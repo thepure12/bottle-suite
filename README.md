@@ -67,7 +67,48 @@ Bottle Suite will attempt to automatically find Resources objects in a resource 
 ```
 ├── src
 │   ├── resources
+│   │   ├── __init__.py
 │   │   ├── resource_a.py
 |   |   ├── resource_b.py
 │   ├── app.py
+```
+
+### Resource Objects
+See [Bottle REST Tutorial](https://github.com/thepure12/bottle-rest/blob/main/docs/tutorial.rst)
+
+#### resource_a.py
+```python
+from bottle_suite import Resource
+
+class ResourceA(Resource):
+
+    def options(self):
+        pass
+
+    def get(self):
+        return {}
+    
+    def post(self):
+        pass
+    
+    def put(self):
+        pass
+
+    def patch(self):
+        pass
+
+    def delete(self):
+        pass
+```
+
+### Adding Endpoints for Resources
+Bottle Suite has a Bottle REST object. Resources can be added by accessccing the object and calling *addResource()*.
+#### app.py
+```python
+from resources.resource_a import ResourceA
+from bottle_suite import BottleSuite
+
+app = BottleSuite()
+app.rest.addResource(ResourceA, "/resource_a")
+app.run(reloader=True)
 ```
