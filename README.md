@@ -102,7 +102,7 @@ class ResourceA(Resource):
 ```
 
 ### Adding Endpoints for Resources
-Bottle Suite has a Bottle REST object. Resources can be added by accessccing the Bottle REST object and calling ***addResource()***.
+Bottle Suite has a Bottle REST object. Resources can be added by accessing the Bottle REST object and calling ***addResource()***.
 
 #### app.py
 ```python
