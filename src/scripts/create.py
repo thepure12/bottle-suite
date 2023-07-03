@@ -129,13 +129,13 @@ def attachSqlDB(dirname):
     )
     if attachSqlDB:
         cfg["sql"] = {
-            "dbhost": input(f"Enter host name. {colored('<localhost>', Colors.DARK_GRAY)}")
+            "host": input(f"Enter host name. {colored('<localhost>', Colors.DARK_GRAY)}")
             or "my.db.com",
-            "dbname": input(f"Enter database name. {colored('<mydb>', Colors.DARK_GRAY)}")
+            "database": input(f"Enter database name. {colored('<mydb>', Colors.DARK_GRAY)}")
             or "mydb",
-            "dbuser": input(f"Enter username. {colored('<username>', Colors.DARK_GRAY)}")
+            "user": input(f"Enter username. {colored('<username>', Colors.DARK_GRAY)}")
             or "username",
-            "dbpass": input(f"Enter password. {colored('<password>', Colors.DARK_GRAY)}")
+            "password": input(f"Enter password. {colored('<password>', Colors.DARK_GRAY)}")
             or "password",
         }
         with open(f"{dirname}/bottle_suite.toml", "w+") as f:

@@ -266,7 +266,7 @@ class BottleSuite(Bottle):
                 endpoints.append(e)
         return endpoints
 
-    def getDBCursor(self) -> pymysql.cursors.Cursor | sqlite3.Cursor:
+    def getDBCursor(self) -> Union[pymysql.cursors.Cursor, sqlite3.Cursor]:
         try:
             conn = sqlite3.connect(self.sqlite.sql_config["database"])
             conn.row_factory = lambda cursor, row: {
