@@ -4,6 +4,7 @@ from pymysql import IntegrityError as SqlIntegrityError
 from sqlite3 import IntegrityError as SqliteIntegrityError
 from enum import Enum
 import re
+from typing import Union
 
 
 FOREIGN_KEY_SQL = """
@@ -33,7 +34,7 @@ def createResource(name, fields, sql=False):
         _name = "".join([x.capitalize() for x in re.split(", |_|-|!", name)])
         refs = {}  # reference table cache
 
-        def getRefs(self, db, table, row: dict = None, levels=1) -> dict | None:
+        def getRefs(self, db, table, row: dict = None, levels=1) -> Union[dict, None]:
             # TODO clean this up
             if levels > 1 or not row:
                 levels -= 1
