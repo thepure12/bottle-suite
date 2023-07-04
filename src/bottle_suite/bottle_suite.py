@@ -199,8 +199,10 @@ class BottleSuite(Bottle):
         spec.loader.exec_module(module)
         classes = inspect.getmembers(module, inspect.isclass)
         for cls in classes:
+            if Resource not in cls[1].mro(): # Is class a Bottle-Rest Resource
+                continue
             resource = cls[1]
-            if cls[0] == "Resource":
+            if cls[0] == "Resource": # Is class the Bottle-Rest base class
                 continue
             try:
                 paths = self.cfg["resources"][module_name]["paths"]
