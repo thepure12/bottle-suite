@@ -110,16 +110,20 @@ def createResource(name, fields, sql=False):
                         VALUES ({','.join([self.bind_char for x in range(len(bindings))])})"""
             try:
                 executed = db.execute(sql, bindings)
-                last_row_id = executed.lastrowid
-                created = self.get(db, last_row_id)
-                response.status = 201
-                return created
             except SqlIntegrityError as e:
                 response.status = 422
                 return {"message": str(e)}
             except SqliteIntegrityError as e:
                 response.status = 422
                 return {"message": f"{str(e).split('.')[1]} must be unique"}
+            # Get row ID of created resource
+            try:
+                last_row_id = executed.lastrowid
+            except AttributeError:
+                last_row_id = db.lastrowid
+            created = self.get(db, last_row_id)
+            response.status = 201
+            return created
 
         def _doPut(self, db, **kwargs):
             pass
