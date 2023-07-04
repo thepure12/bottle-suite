@@ -90,7 +90,9 @@ def createResource(name, fields, sql=False):
                 rows = query.fetchone() if key else query.fetchall()
             except:
                 rows = db.fetchone() if key else db.fetchall()
-            if rows:
+            if rows or not key:
+                if isinstance(rows, tuple):
+                    rows = list(rows)
                 if isinstance(rows, list):
                     for row in rows:
                         self.getRefs(db, name, row, levels)
