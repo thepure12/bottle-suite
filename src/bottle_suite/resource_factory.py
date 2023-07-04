@@ -160,24 +160,24 @@ def createResource(name, fields, sql=False):
             setattr(cls, _name.lower(), locals().get("func"))
 
     # TODO this is likely legacy, probably should remove if
-    if sql:
-        ChildResource.createFunction("post")
-        ChildResource.createFunction("put")
-        ChildResource.createFunction("patch")
-    else:
-        ChildResource.createFunction(
-            "post",
-            *[f["name"] for f in fields if f["name"] != ChildResource.key],
-            **{ChildResource.key: None},
-        )
-        ChildResource.createFunction("put", *[f["name"] for f in fields])
-        ChildResource.createFunction(
-            "patch",
-            ChildResource.key,
-            **{
-                f["name"]: PatchData.UNCHANGED
-                for f in fields
-                if f["name"] != ChildResource.key
-            },
-        )
+    # if sql:
+    #     ChildResource.createFunction("post")
+    #     ChildResource.createFunction("put")
+    #     ChildResource.createFunction("patch")
+    # else:
+    ChildResource.createFunction(
+        "post",
+        *[f["name"] for f in fields if f["name"] != ChildResource.key],
+        **{ChildResource.key: None},
+    )
+    ChildResource.createFunction("put", *[f["name"] for f in fields])
+    ChildResource.createFunction(
+        "patch",
+        ChildResource.key,
+        **{
+            f["name"]: PatchData.UNCHANGED
+            for f in fields
+            if f["name"] != ChildResource.key
+        },
+    )
     return ChildResource
