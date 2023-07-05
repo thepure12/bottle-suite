@@ -152,3 +152,10 @@ def main():
         attachSqlDB(dirname)
     print(f"Created project {dirname}")
     cprint(f"\n\tcd {dirname}\n\tbottle-suite -d -r\n\t", Colors.DARK_GRAY)
+
+
+def resource():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("resource", nargs="?")
+    args = parser.parse_args()
+    print(args)
