@@ -43,17 +43,27 @@ const { resources, fetchResources } = useResourcesStore()
 const NAV_ITEMS = [
   { label: 'Overview', icon: 'i-lucide-layout-grid', to: '/' },
   { label: 'DB Resources', icon: 'i-lucide-package', to: '/resources' },
+  { label: 'Python Resources', icon: 'i-lucide-file-code-2', to: '/python-resources' },
+  { label: 'API Docs', icon: 'i-lucide-book-open-text', to: '/api-docs' },
+  { label: 'API Explorer', icon: 'i-lucide-flask-conical', to: '/api-explorer' },
   { label: 'Config', icon: 'i-lucide-settings', to: '/config' },
 ]
 const navItems = [NAV_ITEMS]
 
-// Resource detail routes (/resources/<id>) get a "DB Resources > <id>" trail;
-// every other page just shows its own definePageMeta({ title }).
+// Resource detail routes (/resources/<id>, /python-resources/<name>) get a
+// "DB Resources > <id>" / "Python Resources > <name>" trail; every other
+// page just shows its own definePageMeta({ title }).
 const breadcrumb = computed(() => {
   if (route.path.startsWith('/resources/')) {
     return [
       { label: 'DB Resources', icon: 'i-lucide-package', to: '/resources' },
       { label: route.params.id as string },
+    ]
+  }
+  if (route.path.startsWith('/python-resources/')) {
+    return [
+      { label: 'Python Resources', icon: 'i-lucide-file-code-2', to: '/python-resources' },
+      { label: route.params.name as string },
     ]
   }
   return [{ label: (route.meta.title as string) ?? 'Overview' }]

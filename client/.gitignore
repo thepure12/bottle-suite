@@ -67,9 +67,14 @@ typings/
 
 # nuxt.js build output
 .nuxt
+.output
 
 # Nuxt generate
 dist
+
+# Redoc standalone bundle, vendored from the redoc devDependency by
+# scripts/copy-redoc-bundle.mjs (postinstall) - regenerated on npm install
+public/vendor/
 
 # vuepress build output
 .vuepress/dist

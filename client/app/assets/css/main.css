@@ -1,0 +1,107 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme {
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+}
+
+/*
+ * "Bottle glass" brand palette - custom Tailwind v4 color scales consumed by
+ * app/app.config.ts's ui.colors aliases (see @nuxt/ui's colors plugin,
+ * which resolves e.g. `primary: 'amberglass'` to these --color-amberglass-*
+ * stops rather than a built-in Tailwind color). These are only ever read via
+ * CSS var() at runtime (by @nuxt/ui's colors plugin), never as literal
+ * `bg-amberglass-500`-style utility classes, so they need `@theme static` -
+ * a plain `@theme` block tree-shakes any token Tailwind can't see referenced
+ * by a scanned utility class, which silently dropped these entirely.
+ */
+@theme static {
+  /* amber glass - primary */
+  --color-amberglass-50: #fcf8f3;
+  --color-amberglass-100: #f9f0e6;
+  --color-amberglass-200: #f2dfc9;
+  --color-amberglass-300: #eac9a4;
+  --color-amberglass-400: #e0b17b;
+  --color-amberglass-500: #d39145;
+  --color-amberglass-600: #ba772c;
+  --color-amberglass-700: #996224;
+  --color-amberglass-800: #7c501d;
+  --color-amberglass-900: #634017;
+  --color-amberglass-950: #3e280f;
+
+  /* wine-bottle olive glass - secondary/success (status only, not decorative) */
+  --color-oliveglass-50: #f8faf5;
+  --color-oliveglass-100: #f1f4eb;
+  --color-oliveglass-200: #e1e8d4;
+  --color-oliveglass-300: #cbd8b6;
+  --color-oliveglass-400: #b4c695;
+  --color-oliveglass-500: #95af6a;
+  --color-oliveglass-600: #7c9550;
+  --color-oliveglass-700: #667b42;
+  --color-oliveglass-800: #536336;
+  --color-oliveglass-900: #42502b;
+  --color-oliveglass-950: #29321b;
+
+  /* bitters-bottle brick - error/destructive */
+  --color-brickglass-50: #fbf5f3;
+  --color-brickglass-100: #f8ebe8;
+  --color-brickglass-200: #efd4cd;
+  --color-brickglass-300: #e4b5aa;
+  --color-brickglass-400: #d89483;
+  --color-brickglass-500: #c86851;
+  --color-brickglass-600: #ae4f37;
+  --color-brickglass-700: #8f412d;
+  --color-brickglass-800: #743525;
+  --color-brickglass-900: #5d2a1d;
+  --color-brickglass-950: #3a1a12;
+}
+
+/*
+ * Warm ink/paper backgrounds in place of Nuxt UI's default cool
+ * neutral-900/white. These are the same --ui-bg/--ui-text/--ui-border
+ * tokens @nuxt/ui's own runtime/index.css sets from its neutral color
+ * scale - redeclared here, in the same .light/.dark class-selector order
+ * @nuxt/ui itself uses (light-and-root first, dark second), so .dark
+ * still wins the cascade at equal specificity when it applies.
+ */
+.light,
+:root {
+  --ui-bg: #f2efe6;
+  --ui-bg-muted: #ece8da;
+  --ui-bg-elevated: #ffffff;
+  --ui-bg-accented: #e4dfce;
+  --ui-bg-inverted: #1e1b14;
+
+  --ui-border: #e3dcc8;
+  --ui-border-muted: #ddd6c4;
+  --ui-border-accented: #c9bfa5;
+  --ui-border-inverted: #f2efe6;
+
+  --ui-text-highlighted: #100e0a;
+  --ui-text: #1e1b14;
+  --ui-text-toned: #3a362b;
+  --ui-text-muted: #6b6558;
+  --ui-text-dimmed: #948c79;
+  --ui-text-inverted: #f2efe6;
+}
+
+.dark {
+  --ui-bg: #12140f;
+  --ui-bg-muted: #171911;
+  --ui-bg-elevated: #1b1e16;
+  --ui-bg-accented: #242820;
+  --ui-bg-inverted: #ede8dc;
+
+  --ui-border: #23261c;
+  --ui-border-muted: #2c2f24;
+  --ui-border-accented: #3a3e2e;
+  --ui-border-inverted: #12140f;
+
+  --ui-text-highlighted: #fbf9f2;
+  --ui-text: #ede8dc;
+  --ui-text-toned: #c9c2ae;
+  --ui-text-muted: #9a9483;
+  --ui-text-dimmed: #6e6858;
+  --ui-text-inverted: #12140f;
+}
