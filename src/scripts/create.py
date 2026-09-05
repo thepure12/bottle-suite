@@ -6,6 +6,8 @@ import shutil
 import pathlib
 import sqlite3
 
+from bottle_suite import resource_scaffold
+
 
 class Colors:
     """ANSI color codes"""
@@ -142,6 +144,32 @@ def attachSqlDB(dirname):
             toml.dump(cfg, f)
 
 
+def setupDashboardAuth(dirname):
+    setup = (
+        "y"
+        == input(
+            f"Set up a dashboard admin password? {colored('[y/N]', Colors.DARK_GRAY)}: "
+        ).lower()
+    )
+    if setup:
+        from bottle_suite.dashboard.resources.token import hashPassword
+
+        username = (
+            input(f"Enter admin username. {colored('<admin>', Colors.DARK_GRAY)}: ")
+            or "admin"
+        )
+        password = input("Enter admin password: ")
+        if not password:
+            cprint(
+                "(error) Password cannot be empty, skipping dashboard setup.",
+                Colors.RED,
+            )
+            return
+        cfg["dashboard"] = {"username": username, "password_hash": hashPassword(password)}
+        with open(f"{dirname}/bottle_suite.toml", "w+") as f:
+            toml.dump(cfg, f)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("dirname", nargs="?")
@@ -150,12 +178,60 @@ def main():
     createProjectDir(dirname)
     if not createSqliteDB(dirname):
         attachSqlDB(dirname)
+    setupDashboardAuth(dirname)
     print(f"Created project {dirname}")
     cprint(f"\n\tcd {dirname}\n\tbottle-suite -d -r\n\t", Colors.DARK_GRAY)
+
+
+def getResourceName(args):
+    name = args.resource
+    if not name:
+        try:
+            name = input(
+                f"Enter resource name. {colored('<my_resource>', Colors.DARK_GRAY)}: "
+            )
+        except KeyboardInterrupt:
+            print("")
+            exit()
+    return name.strip().lower()
+
+
+def createResourceFile(name):
+    if not resource_scaffold.NAME_RE.match(name):
+        cprint(f"(error) Invalid resource name: {name}", Colors.RED)
+        exit()
+    resources_dir = os.path.join(os.getcwd(), "resources")
+    os.makedirs(resources_dir, exist_ok=True)
+    file_path = os.path.join(resources_dir, f"{name}.py")
+    if os.path.exists(file_path):
+        cprint(f"(error) Resource '{name}' already exists.", Colors.RED)
+        exit()
+    class_name = "".join(p.capitalize() for p in name.split("_"))
+    with open(file_path, "w") as f:
+        f.write(resource_scaffold.render(class_name))
+
+
+def updateResourceConfig(name):
+    cfg_path = os.path.join(os.getcwd(), "bottle_suite.toml")
+    if os.path.exists(cfg_path):
+        with open(cfg_path) as f:
+            project_cfg = toml.load(f)
+    else:
+        project_cfg = {}
+    project_cfg.setdefault("resources", {}).setdefault(name, {})["paths"] = [
+        f"/{name}",
+        f"/{name}/<key>",
+    ]
+    with open(cfg_path, "w") as f:
+        toml.dump(project_cfg, f)
 
 
 def resource():
     parser = argparse.ArgumentParser()
     parser.add_argument("resource", nargs="?")
     args = parser.parse_args()
-    print(args)
+    name = getResourceName(args)
+    createResourceFile(name)
+    updateResourceConfig(name)
+    print(f"Created resource {name}")
+    cprint(f"resources/{name}.py", Colors.DARK_GRAY)
