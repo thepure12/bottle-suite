@@ -1,5 +1,1 @@
-include src/bottle_suite/dashboard/dist/*
-include src/bottle_suite/dashboard/dist/_nuxt/*
-include src/bottle_suite/dashboard/dist/config/*
-include src/bottle_suite/dashboard/dist/login/*
-include src/bottle_suite/dashboard/dist/resources/*
+graft src/bottle_suite/dashboard/dist

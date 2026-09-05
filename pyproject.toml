@@ -15,14 +15,41 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "bottle-restful >= 0.0.1",
-  "bottle-jwt3 >= 0.0.1",
-  "bottle-sql >= 0.0.1",
-  "bottle-cors2 >= 0.0.1",
+  "bottle",
+  "PyJWT",
+  "pymysql",
   "toml >= 0.10.2",
 ]
 
 [project.scripts]
 bottle-suite = "scripts.app:main"
 bottle-suite-create = "scripts.create:main"
-# bottle-suite-resource = "scripts.create:resource"
+bottle-suite-resource = "scripts.create:resource"
+
+[project.optional-dependencies]
+test = [
+  "coverage>=7.4",
+  "webtest>=3.0",
+]
+
+[tool.coverage.run]
+branch = true
+include = [
+  "*/bottle_suite/bottle_suite.py",
+  "*/bottle_suite/resource_factory.py",
+  "*/bottle_suite/resource_scaffold.py",
+  "*/bottle_suite/resources.py",
+  "*/bottle_suite/openapi.py",
+  "*/bottle_suite/plugins/rest.py",
+  "*/bottle_suite/plugins/jwt.py",
+  "*/bottle_suite/plugins/sql.py",
+  "*/bottle_suite/plugins/cors.py",
+  "*/bottle_suite/dashboard/resources/token.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+exclude_lines = [
+  "pragma: no cover",
+]

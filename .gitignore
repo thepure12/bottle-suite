@@ -7,3 +7,5 @@ bottle.py
 src/bottle_suite/plugins/bottle*
 tmp.db
 venv
+.venv
+.coverage
