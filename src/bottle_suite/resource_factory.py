@@ -1,4 +1,4 @@
-from bottle_rest import Resource
+from .plugins import Resource
 from bottle import response
 from pymysql import IntegrityError as SqlIntegrityError
 from sqlite3 import IntegrityError as SqliteIntegrityError
@@ -48,8 +48,8 @@ def createResource(name, fields, sql=False):
                         table, col, ref_table, ref_col = tuple(ref.values())
                         if not row[col]:
                             continue
-                        sql = f"select * from {ref_table} where {ref_col}=%s"
-                        db.execute(sql, ({row[col]},))
+                        sql = f"select * from {ref_table} where {ref_col}={self.bind_char}"
+                        db.execute(sql, (row[col],))
                         row.pop(col)
                         for t in REPLACE_TEXT:
                             col = col.replace(t, "")
@@ -81,7 +81,7 @@ def createResource(name, fields, sql=False):
                 sql += f" WHERE {self.key}={self.bind_char}"
             elif self.params:
                 bindings = tuple(f"%{v}%" for v in self.params.values())
-                filters = "AND ".join(
+                filters = " AND ".join(
                     [f"{k} LIKE {self.bind_char}" for k in self.params.keys()]
                 )
                 sql += f" WHERE {filters}"
@@ -117,7 +117,9 @@ def createResource(name, fields, sql=False):
                 return {"message": str(e)}
             except SqliteIntegrityError as e:
                 response.status = 422
-                return {"message": f"{str(e).split('.')[1]} must be unique"}
+                parts = str(e).split(".")
+                message = f"{parts[1]} must be unique" if len(parts) > 1 else str(e)
+                return {"message": message}
             # Get row ID of created resource
             try:
                 last_row_id = executed.lastrowid
@@ -128,7 +130,20 @@ def createResource(name, fields, sql=False):
             return created
 
         def _doPut(self, db, **kwargs):
-            pass
+            res_id = kwargs.pop(self.key)
+            bindings = tuple(kwargs.values())
+            sql = f"""UPDATE {self.table}
+                      SET {','.join([f'{k}={self.bind_char}' for k in kwargs])}
+                      WHERE {self.key}={self.bind_char}"""
+            bindings += (res_id,)
+            try:
+                db.execute(sql, bindings)
+                updated = self.get(db, res_id)
+                response.status = 200
+                return updated
+            except Exception as e:
+                response.status = 500
+                return {"message": f"{type(e)} {e}"}
 
         def _doPatch(self, db, **kwargs):
             res_id = kwargs.pop(self.key)
@@ -147,15 +162,25 @@ def createResource(name, fields, sql=False):
                 return {"message": f"{type(e)} {e}"}
 
         def delete(self, db, key):
-            pass
+            sql = f"DELETE FROM {self.table} WHERE {self.key}={self.bind_char}"
+            try:
+                db.execute(sql, (key,))
+                response.status = 200
+                return {"message": f"{self.key} {key} deleted"}
+            except Exception as e:
+                response.status = 500
+                return {"message": f"{type(e)} {e}"}
 
         @classmethod
-        def createFunction(cls, _name: str, *args, **kwargs):
+        def createFunction(cls, _name: str, *args, key_param: str = None, **kwargs):
             params = ""
             _args = ""
             if args:
-                params += f", {', '.join(args)}"
-                _args += "," + ", ".join([f"{arg}={arg}" for arg in args])
+                outer_names = ["key" if a == key_param else a for a in args]
+                params += f", {', '.join(outer_names)}"
+                _args += "," + ", ".join(
+                    [f"{a}=key" if a == key_param else f"{a}={a}" for a in args]
+                )
             if kwargs:
                 params += ", " + ", ".join([f"{x}={kwargs[x]}" for x in kwargs])
                 _args += ", " + ", ".join([f"{x}={x}" for x in kwargs])
@@ -176,10 +201,15 @@ def createResource(name, fields, sql=False):
         *[f["name"] for f in fields if f["name"] != ChildResource.key],
         **{ChildResource.key: None},
     )
-    ChildResource.createFunction("put", *[f["name"] for f in fields])
+    ChildResource.createFunction(
+        "put",
+        *[f["name"] for f in fields],
+        key_param=ChildResource.key,
+    )
     ChildResource.createFunction(
         "patch",
         ChildResource.key,
+        key_param=ChildResource.key,
         **{
             f["name"]: PatchData.UNCHANGED
             for f in fields

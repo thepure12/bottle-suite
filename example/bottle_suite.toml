@@ -1,8 +1,12 @@
 cors = true
 sqlite = "example.db"
+jwt = "lj5qoVZf_VsWmjLV3Fw1JzsLm_C8Ttyj5-bR6H5QwP8"
+rest = true
+sql = false
 
-[jwt]
-jwt_key = "lj5qoVZf_VsWmjLV3Fw1JzsLm_C8Ttyj5-bR6H5QwP8"
+[dashboard]
+username = "admin"
+password_hash = "192179c28e7c3a4a588bd349fe1e79870fe9f5f3512087c52316f7b5ef6f3d85243119ecb7fd4f803752a5fc55731ce6d352abeb48937f4fd7230cce48d67b29"
 
 [resources.artists]
 paths = [ "/artists/<key>", "/artists/<ArtistId>",]

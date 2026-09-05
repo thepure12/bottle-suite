@@ -1,9 +1,6 @@
 # Bottle and plugins
 from bottle import Bottle, JSONPlugin, static_file
-from bottle_cors import EnableCors
-from bottle_rest import API, Resource
-from bottle_jwt import JWTPlugin, authFunc
-from bottle_sql import sqlitePlugin, sqlPlugin
+from .plugins import API, Resource, JWTPlugin, authFunc, sqlitePlugin, sqlPlugin, CorsPlugin
 
 # Other imports
 from typing import Union
@@ -11,8 +8,8 @@ import toml
 import os
 import inspect
 from importlib import util
-from . import resource_factory, reload
-from .resources import AllResources, DataTypes, Config
+from . import resource_factory, reload, resource_scaffold, openapi
+from .resources import AllResources, DataTypes, Config, PythonResources
 from .dashboard.resources.token import DashboardToken
 import pymysql
 import pymysql.cursors
@@ -27,7 +24,10 @@ DIST = f"{Path(__file__).parent.parent.resolve()}/bottle_suite/dashboard/dist"
 
 
 def dashboard(path=""):
-    # print(dist)
+    if path:
+        rel_path = path.lstrip("/")
+        if os.path.isfile(os.path.join(DIST, rel_path)):
+            return static_file(rel_path, DIST)
     return static_file("index.html", DIST)
 
 
@@ -57,11 +57,15 @@ class BottleSuite(Bottle):
         gen_res: bool = True,
         cfg_file: str = "bottle_suite.toml",
         dashboard: bool = False,
+        openapi: Union[bool, dict] = True,
         run_args: dict = {},
         **kwargs,
     ):
         super().__init__(autojson=False, **kwargs)
-        if kwargs.get("autojson") != False:
+        # kwargs can never actually contain "autojson" here -- Bottle.__init__
+        # would already have raised "got multiple values for keyword argument
+        # 'autojson'" on the line above, since it's also passed literally.
+        if kwargs.get("autojson") != False:  # pragma: no branch
             json_plugin = JSONPlugin(
                 json_dumps=lambda s: json.dumps(s, cls=JSONEncoder)
             )
@@ -83,6 +87,8 @@ class BottleSuite(Bottle):
             sqlite = self.cfg["sqlite"]
         if "sql" in self.cfg:
             sql = self.cfg["sql"]
+        if "openapi" in self.cfg:
+            openapi = self.cfg["openapi"]
         self.setupCors(cors)
         if sql and sqlite:
             # TODO allow multiple databases
@@ -94,6 +100,7 @@ class BottleSuite(Bottle):
         self.setupRest(rest, gen_res)
         if gen_db and (sql or sqlite):
             self.createResForDB()
+        self.setupOpenApi(openapi)
 
     @property
     def resource_names(self):
@@ -102,21 +109,34 @@ class BottleSuite(Bottle):
         except:
             return set()
 
-    def setupDashboard(self, use_dashboard: bool):
-        if use_dashboard:
-            if self.jwt.token_paths["token"] == authFunc:
-                # If using dashboard and not auth function is set, override the default one
-                self.jwt.token_paths["token"] = DashboardToken.authenticate
+    def setupDashboard(self, use_dashboard: Union[bool, dict]):
+        if isinstance(use_dashboard, dict):
+            enabled = use_dashboard.get("enabled", True)
+        else:
+            enabled = bool(use_dashboard)
+        if enabled:
+            if not os.path.exists(f"{DIST}/index.html"):
+                print(
+                    f"Dashboard enabled but no build found at {DIST} - run 'make dashboard'"
+                )
+            self.dashboard_token = DashboardToken(self)
+            if self.jwt and self.jwt.token_paths["token"] == authFunc:
+                # If using dashboard and not auth function is set, override the default one.
+                # A project that supplies its own auth_func keeps that one instead, so the
+                # dashboard's /dashboard/setup credentials won't be used to log into /token.
+                self.jwt.token_paths["token"] = self.dashboard_token.authenticate
             self.route("/dashboard/_nuxt/<filename>", method="GET", callback=nuxt)
             self.route(
                 ["/dashboard", "/dashboard<path:path>"],
                 method="GET",
                 callback=dashboard,
             )
+        else:
+            self.dashboard_token = None
 
     def setupCors(self, cors):
         if cors:
-            self.cors = EnableCors()
+            self.cors = CorsPlugin()
             self.install(self.cors)
         else:
             self.cors = None
@@ -133,8 +153,26 @@ class BottleSuite(Bottle):
             )
             self.rest.addResource(DataTypes(self), "/_datatypes")
             self.rest.addResource(Config(self), "/bottle_suite_cfg")
+            self.rest.addResource(
+                PythonResources(self), "/_python_resources", "/_python_resources/<resource>"
+            )
+            if getattr(self, "dashboard_token", None):
+                self.rest.addResource(self.dashboard_token, "/dashboard/setup")
         else:
             self.rest = None
+
+    def setupOpenApi(self, use_openapi: Union[bool, dict]):
+        if isinstance(use_openapi, dict):
+            enabled = use_openapi.get("enabled", True)
+            roles = use_openapi.get("roles")
+        else:
+            enabled = bool(use_openapi)
+            roles = None
+        if enabled:
+            cfg = {"roles": roles} if roles else {}
+            callback = lambda: openapi.buildSpec(self)
+            self.route("/openapi.json", "GET", callback, **cfg)
+            self.route("/openapi.json", "OPTIONS", callback, **cfg)
 
     def setupJwt(self, jwt):
         cfg = {}
@@ -233,6 +271,11 @@ class BottleSuite(Bottle):
         rules = {r.rule for r in self.routes}
         if self.rest and (self.sql or self.sqlite):
             for table, fields in self.getDBTables().items():
+                if not any(f["key"] == 1 for f in fields):
+                    print(
+                        f"Skipping resource generation for table '{table}': no primary key found"
+                    )
+                    continue
                 resource = resource_factory.createResource(table, fields, self.sql)
                 self.setRoles(resource, table)
                 endpoints = []
@@ -269,12 +312,12 @@ class BottleSuite(Bottle):
         return endpoints
 
     def getDBCursor(self) -> Union[pymysql.cursors.Cursor, sqlite3.Cursor]:
-        try:
+        if self.sqlite:
             conn = sqlite3.connect(self.sqlite.sql_config["database"])
             conn.row_factory = lambda cursor, row: {
                 col[0]: row[idx] for idx, col in enumerate(cursor.description)
             }
-        except:
+        elif self.sql:
             conn = pymysql.connect(
                 host=self.sql.sql_config["host"],
                 user=self.sql.sql_config["user"],
@@ -282,6 +325,8 @@ class BottleSuite(Bottle):
                 database=self.sql.sql_config["database"],
                 cursorclass=pymysql.cursors.DictCursor,
             )
+        else:
+            raise Exception("No database configured (sql or sqlite)")
         db = conn.cursor()
         return db
 
@@ -326,12 +371,12 @@ class BottleSuite(Bottle):
         ]
 
     def getDBTables(self) -> dict:
-        try:
+        if self.sqlite:
             conn = sqlite3.connect(self.sqlite.sql_config["database"])
             conn.row_factory = lambda cursor, row: {
                 col[0]: row[idx] for idx, col in enumerate(cursor.description)
             }
-        except:
+        elif self.sql:
             conn = pymysql.connect(
                 host=self.sql.sql_config["host"],
                 user=self.sql.sql_config["user"],
@@ -339,6 +384,8 @@ class BottleSuite(Bottle):
                 database=self.sql.sql_config["database"],
                 cursorclass=pymysql.cursors.DictCursor,
             )
+        else:
+            raise Exception("No database configured (sql or sqlite)")
         db = conn.cursor()
         if isinstance(db, sqlite3.Cursor):
             tables_sql = "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%PRIMARY%'"
@@ -353,19 +400,23 @@ class BottleSuite(Bottle):
         return tables
 
     def createTable(self, name):
+        name = name.strip().lower()
+        if not resource_scaffold.NAME_RE.match(name):
+            raise ValueError(f"Invalid resource name: {name}")
         sql = f"""CREATE TABLE {name} (
                   {name}_id INTEGER PRIMARY KEY AUTOINCREMENT)"""
         if self.sqlite:
             print(f"Creating table {name}")
-            with sqlite3.connect(self.sqlite.dbfile) as db:
+            with sqlite3.connect(self.sqlite.sql_config["database"]) as db:
                 created = db.execute(sql)
                 db.commit()
         self.reloadServer()
+        return name
 
     def alterDBTable(self, table, field_attrs):
         print(f"Altering {table} with {field_attrs}")
         if self.sqlite:
-            with sqlite3.connect(self.sqlite.dbfile) as db:
+            with sqlite3.connect(self.sqlite.sql_config["database"]) as db:
                 fields = self.getSqliteTable(db, {"name": table})
                 (cid, name, datatype, notnull, dflt, pk) = next(
                     (f for f in fields if f[0] == field_attrs["cid"]),
@@ -387,7 +438,7 @@ class BottleSuite(Bottle):
                     datatype = datatype or "TEXT"
                     notnull = "NOT NULL" if notnull else ""
                     if notnull and not dflt:
-                        dflt = " "
+                        dflt = "''"
                     dflt = f"DEFAULT {dflt}" if dflt else ""
                     pk = "PRIMARY KEY" if pk == 1 else ""
                     sql = f"""ALTER TABLE {table}
@@ -396,12 +447,25 @@ class BottleSuite(Bottle):
                 db.commit()
         self.reloadServer()
 
+    def createResourceFile(self, name):
+        name = name.strip().lower()
+        if not resource_scaffold.NAME_RE.match(name):
+            raise ValueError(f"Invalid resource name: {name}")
+        resources_dir = os.path.join(os.getcwd(), "resources")
+        os.makedirs(resources_dir, exist_ok=True)
+        file_path = os.path.join(resources_dir, f"{name}.py")
+        if os.path.exists(file_path):
+            raise FileExistsError(f"Resource '{name}' already exists")
+        class_name = "".join(p.capitalize() for p in name.split("_"))
+        with open(file_path, "w") as f:
+            f.write(resource_scaffold.render(class_name))
+        self.getResourceConfig(name)["paths"] = [f"/{name}", f"/{name}/<key>"]
+        self.saveConfig()
+        self.reloadServer()
+        return name
+
     def getResourceConfig(self, resource: str) -> dict:
-        try:
-            cfg_resource = self.cfg["resources"][resource]
-        except:
-            cfg_resource = self.cfg["resources"][resource] = {}
-        return cfg_resource
+        return self.cfg.setdefault("resources", {}).setdefault(resource, {})
 
     def updatePaths(self, resource, index, path):
         print(f"Updating paths for {resource}")
@@ -422,7 +486,9 @@ class BottleSuite(Bottle):
             cfg_roles = cfg_resource["roles"]
         else:
             cfg_roles = cfg_resource["roles"] = {method: False}
-        if roles.lower() in ["true", "false"]:
+        if isinstance(roles, (list, bool)):
+            cfg_roles[method] = roles
+        elif roles.lower() in ["true", "false"]:
             cfg_roles[method] = roles == "true"
         else:
             cfg_roles[method] = roles.split(",")

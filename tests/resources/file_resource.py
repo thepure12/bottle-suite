@@ -1,5 +1,14 @@
 from bottle_suite import Resource
 
+
+class NotAResource:
+    """A plain, non-Resource class living alongside FileResource in this
+    module -- exercises importResourcesFromFile()'s skip-non-Resource-class
+    branch (BottleSuite never registers a route for it)."""
+
+    pass
+
+
 class FileResource(Resource):
 
     def options(self):
