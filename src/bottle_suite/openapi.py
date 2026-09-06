@@ -54,6 +54,22 @@ def _mapSqlType(sql_type) -> dict:
     return dict(SQL_TYPE_MAP.get(base, DEFAULT_SCHEMA))
 
 
+PARAM_TYPE_MAP = {
+    bool: {"type": "boolean"},
+    int: {"type": "integer"},
+    float: {"type": "number"},
+    str: {"type": "string"},
+}
+
+
+def _inferParamType(default) -> dict:
+    if default is inspect.Parameter.empty or default is None:
+        return dict(DEFAULT_SCHEMA)
+    # Exact-type lookup, not isinstance: bool is a subclass of int in
+    # Python, so isinstance-based matching would misclassify True/False.
+    return dict(PARAM_TYPE_MAP.get(type(default), DEFAULT_SCHEMA))
+
+
 def _isExcluded(rule: str) -> bool:
     return rule.startswith(EXCLUDED_PREFIXES)
 
@@ -103,7 +119,7 @@ def _paramSchema(callback, skip: set) -> dict:
             inspect.Parameter.VAR_KEYWORD,
         ):
             continue
-        properties[pname] = dict(DEFAULT_SCHEMA)
+        properties[pname] = _inferParamType(param.default)
         if param.default is inspect.Parameter.empty:
             required.append(pname)
     schema = {"type": "object", "properties": properties}

@@ -1,7 +1,9 @@
 import _paths  # noqa: F401
 import unittest
+from unittest import mock
 import os
 import shutil
+import sqlite3
 import tempfile
 import toml
 import webtest
@@ -85,6 +87,20 @@ class TestDataTypesResource(unittest.TestCase):
             self.assertIn("TEXT", resp.json["datatypes"])
         finally:
             os.remove(tmp_db)
+
+    def test_get_mysqlConfigured_returnsList(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG,
+            jwt=False,
+            sqlite=False,
+            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
+            gen_res=False,
+            gen_db=False,
+        )
+        app = webtest.TestApp(bs)
+        resp = app.get("/_datatypes")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("VARCHAR(255)", resp.json["datatypes"])
 
     def test_options_isNoop(self):
         bs = BottleSuite(
@@ -396,6 +412,88 @@ class TestAllResourcesPatch(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
+    def test_patch_removePath_dispatch(self):
+        self.app.patch_json(
+            "/_resources/animals",
+            {"attr_name": "paths", "value": {"index": 0, "path": "/a"}},
+        )
+        self.app.patch_json(
+            "/_resources/animals",
+            {"attr_name": "paths", "value": {"index": 1, "path": "/b"}},
+        )
+        resp = self.app.patch_json(
+            "/_resources/animals",
+            {"attr_name": "remove_path", "value": {"index": 0}},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self.bs.cfg["resources"]["animals"]["paths"], ["/b"])
+
+    def test_patch_dropColumn_dispatch(self):
+        fields = self.bs.getDBTable(self.bs.getDBCursor(), "animals")
+        name_field = next(f for f in fields if f["name"] == "name")
+        resp = self.app.patch_json(
+            "/_resources/animals",
+            {
+                "attr_name": "fields",
+                "value": {"cid": fields.index(name_field), "drop": True},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        fields = self.bs.getDBTable(self.bs.getDBCursor(), "animals")
+        self.assertNotIn("name", [f["name"] for f in fields])
+
+    def test_patch_dropColumn_primaryKey_400(self):
+        fields = self.bs.getDBTable(self.bs.getDBCursor(), "animals")
+        pk_index = next(i for i, f in enumerate(fields) if f["key"] == 1)
+        resp = self.app.patch_json(
+            "/_resources/animals",
+            {"attr_name": "fields", "value": {"cid": pk_index, "drop": True}},
+            expect_errors=True,
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json)
+
+
+class TestAllResourcesDelete(unittest.TestCase):
+    def setUp(self):
+        self.tmp_db = db_fixtures.temp_sqlite_copy()
+        self.cfg_dir, self.cfg_path = db_fixtures.temp_cfg_pointing_at(self.tmp_db)
+        self.bs = BottleSuite(
+            cfg_file=self.cfg_path,
+            jwt=False,
+            sqlite=self.tmp_db,
+            gen_res=False,
+            gen_db=True,
+        )
+        self.app = webtest.TestApp(self.bs)
+
+    def tearDown(self):
+        os.remove(self.tmp_db)
+        shutil.rmtree(self.cfg_dir)
+
+    def test_delete_removesTable(self):
+        resp = self.app.delete("/_resources/animals")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("animals", self.bs.getDBTables())
+
+    def test_delete_caseInsensitiveMatch(self):
+        resp = self.app.delete("/_resources/ANIMALS")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("animals", self.bs.getDBTables())
+
+    def test_delete_notFound_404(self):
+        resp = self.app.delete("/_resources/nonexistent", expect_errors=True)
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("message", resp.json)
+
+    def test_delete_dbError_400(self):
+        with mock.patch.object(
+            self.bs, "dropTable", side_effect=sqlite3.OperationalError("locked")
+        ):
+            resp = self.app.delete("/_resources/animals", expect_errors=True)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json)
+
 
 class TestPythonResources(unittest.TestCase):
     def setUp(self):
@@ -501,6 +599,31 @@ class TestPythonResources(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.body, b"")
+
+    def test_patch_removePath_dispatch(self):
+        self.app.post_json("/_python_resources", {"name": "widget"})
+        resp = self.app.patch_json(
+            "/_python_resources/widget",
+            {"attr_name": "remove_path", "value": {"index": 1}},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            self.bs.cfg["resources"]["widget"]["paths"], ["/widget"]
+        )
+
+    def test_delete_removesResource(self):
+        self.app.post_json("/_python_resources", {"name": "widget"})
+        resp = self.app.delete("/_python_resources/widget")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(
+            os.path.exists(os.path.join(self.tmp, "resources", "widget.py"))
+        )
+        self.assertEqual(self.app.get("/_python_resources").json["resources"], [])
+
+    def test_delete_notFound_404(self):
+        resp = self.app.delete("/_python_resources/nope", expect_errors=True)
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("message", resp.json)
 
 
 if __name__ == "__main__":

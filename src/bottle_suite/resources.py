@@ -1,6 +1,7 @@
 from __future__ import annotations
 from .plugins import Resource
 import sqlite3
+import pymysql
 import toml
 import os
 from typing import TYPE_CHECKING
@@ -36,6 +37,33 @@ SQLITE_TYPES = [
     "BOOLEAN",
     "DATE",
     "DATETIME",
+]
+
+MYSQL_TYPES = [
+    "TINYINT",
+    "SMALLINT",
+    "MEDIUMINT",
+    "INT",
+    "BIGINT",
+    "DECIMAL",
+    "FLOAT",
+    "DOUBLE",
+    "BIT",
+    "BOOLEAN",
+    "CHAR",
+    "VARCHAR(255)",
+    "TINYTEXT",
+    "TEXT",
+    "MEDIUMTEXT",
+    "LONGTEXT",
+    "BLOB",
+    "DATE",
+    "DATETIME",
+    "TIMESTAMP",
+    "TIME",
+    "YEAR",
+    "JSON",
+    "ENUM",
 ]
 
 def _buildRoles(config: dict) -> list:
@@ -79,6 +107,8 @@ class DataTypes(Resource):
     def get(self):
         if self.app.sqlite:
             return {"datatypes": SQLITE_TYPES}
+        elif self.app.sql:
+            return {"datatypes": MYSQL_TYPES}
 
 
 class AllResources(Resource):
@@ -158,11 +188,33 @@ class AllResources(Resource):
                 index = value["index"]
                 path = value["path"]
                 self.app.updatePaths(resource, index, path)
+            elif attr_name == "remove_path":
+                index = value["index"]
+                self.app.removePath(resource, index)
             elif attr_name == "fields":
                 self.app.alterDBTable(resource, value)
         except KeyError as e:
             response.status = 400
             return {"message": f"Missing expected key: {e}"}
+        except (ValueError, sqlite3.OperationalError, RuntimeError) as e:
+            response.status = 400
+            return {"message": str(e)}
+
+    def delete(self, resource):
+        tables = self.app.getDBTables()
+        lower_tables = {t.lower(): t for t in tables}
+        matched = lower_tables.get(resource.lower())
+        if matched is None:
+            response.status = 404
+            return {
+                "message": f"Resource '{resource}' not found. Known DB tables: {list(tables.keys())}"
+            }
+        try:
+            self.app.dropTable(matched)
+        except (ValueError, sqlite3.OperationalError, pymysql.err.OperationalError) as e:
+            response.status = 400
+            return {"message": str(e)}
+        return {"message": f"{matched} deleted"}
 
 
 class PythonResources(Resource):
@@ -217,6 +269,19 @@ class PythonResources(Resource):
                 index = value["index"]
                 path = value["path"]
                 self.app.updatePaths(resource, index, path)
+            elif attr_name == "remove_path":
+                index = value["index"]
+                self.app.removePath(resource, index)
         except KeyError as e:
             response.status = 400
             return {"message": f"Missing expected key: {e}"}
+
+    def delete(self, resource):
+        names = self._listNames()
+        if resource not in names:
+            response.status = 404
+            return {
+                "message": f"Resource '{resource}' not found. Known Python resources: {names}"
+            }
+        self.app.deleteResourceFile(resource)
+        return {"message": f"{resource} deleted"}

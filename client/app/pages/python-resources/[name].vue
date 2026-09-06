@@ -23,7 +23,9 @@
         :column-keys="fallbackColumns"
         :hidden-columns="tab === 'Paths' ? ['index'] : []"
         :empty-message="emptyMessage"
+        :show-delete="tab === 'Paths'"
         @edit="openEdit"
+        @delete="openDelete"
         @refresh="reload"
       />
     </UCard>
@@ -40,6 +42,14 @@
       :saving="savingItem"
       @save="onSave"
     />
+
+    <ConfirmDialog
+      v-model:open="deleteDialogOpen"
+      title="Delete this?"
+      :message="deleteMessage"
+      :loading="deleting"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>
 
@@ -50,7 +60,7 @@ type TabName = typeof TABS[number]
 const route = useRoute()
 const router = useRouter()
 const { showError, showSuccess } = useToastError()
-const { resource, fetchPythonResource, updateResourceAttr } = usePythonResourcesStore()
+const { resource, fetchPythonResource, updateResourceAttr, removeResourceAttr } = usePythonResourcesStore()
 
 const resourceName = computed(() => route.params.name as string)
 
@@ -121,6 +131,33 @@ function openEdit(item: Record<string, any>) {
   isNew.value = false
   editedItem.value = { ...item }
   dialogOpen.value = true
+}
+
+const deleteDialogOpen = ref(false)
+const deleting = ref(false)
+const pendingDelete = ref<Record<string, any> | null>(null)
+
+const deleteMessage = computed(() => (
+  pendingDelete.value ? `Path "${pendingDelete.value.path}" will be removed.` : ''
+))
+
+function openDelete(item: Record<string, any>) {
+  pendingDelete.value = item
+  deleteDialogOpen.value = true
+}
+
+async function confirmDelete() {
+  if (!pendingDelete.value) return
+  deleting.value = true
+  try {
+    await removeResourceAttr('remove_path', pendingDelete.value.index)
+    deleteDialogOpen.value = false
+    showSuccess('Deleted')
+  } catch (e: any) {
+    showError(e?.data?.message ?? 'Failed to delete')
+  } finally {
+    deleting.value = false
+  }
 }
 
 async function onSave(item: Record<string, any>) {

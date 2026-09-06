@@ -40,8 +40,20 @@ def createResource(name, fields, sql=False):
             levels -= 1
             _refs = self.refs.get(table)  # Get cached references
             if not _refs:
-                db.execute(FOREIGN_KEY_SQL + f"'{table}'")
-                _refs = db.fetchall()
+                if self.bind_char == "?":  # sqlite has no information_schema
+                    db.execute(f"PRAGMA foreign_key_list('{table}')")
+                    _refs = [
+                        {
+                            "table_name": table,
+                            "column_name": r["from"],
+                            "referenced_table_name": r["table"],
+                            "referenced_column_name": r["to"],
+                        }
+                        for r in db.fetchall()
+                    ]
+                else:
+                    db.execute(FOREIGN_KEY_SQL + f"'{table}'")
+                    _refs = db.fetchall()
                 self.refs[table] = _refs
             if row:
                 for ref in _refs:
@@ -64,10 +76,14 @@ def createResource(name, fields, sql=False):
         def get(self, db, key=None, ref_table=None, ref_id=None):
             if ref_table:
                 _refs = self.getRefs(db, name)
+                # Matches by referenced table name only -- if this table has
+                # more than one FK to ref_table (e.g. predator/prey both
+                # referencing animals), this always picks the first one
+                # found and can't disambiguate which column the caller meant.
                 ref_col = next(
                     (r for r in _refs if r["referenced_table_name"] == ref_table),
                     {},
-                ).get("referenced_column_name")
+                ).get("column_name")
                 if ref_col:
                     self.params[ref_col] = ref_id
                 else:

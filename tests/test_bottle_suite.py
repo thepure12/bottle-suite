@@ -689,6 +689,246 @@ class TestBottleSuite(unittest.TestCase):
              "dflt_value": None, "pk": 0},
         )
 
+    # --- alterDBTable: drop column ---
+    def test_alterDBTable_sqlite_dropColumn_removesColumn(self):
+        # "animals" has no FK-referenced columns, unlike "predations"
+        # (predator/prey are referenced by a FOREIGN KEY definition and
+        # sqlite itself refuses to drop them) -- picking a column with no
+        # such constraint isolates the drop-column logic under test from
+        # that (correct, relied-upon) native DB enforcement.
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        cfg_dir, cfg_path = db_fixtures.temp_cfg_pointing_at(tmp_db)
+        self.addCleanup(shutil.rmtree, cfg_dir)
+        bs = BottleSuite(cfg_file=cfg_path, jwt=False, gen_res=False, gen_db=False)
+        fields = bs.getDBTable(bs.getDBCursor(), "animals")
+        name_field = next(f for f in fields if f["name"] == "name")
+        bs.alterDBTable(
+            "animals", {"cid": fields.index(name_field), "drop": True}
+        )
+        fields = bs.getDBTable(bs.getDBCursor(), "animals")
+        self.assertNotIn("name", [f["name"] for f in fields])
+
+    def test_alterDBTable_sqlite_dropColumn_unknownCid_raisesValueError(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.alterDBTable("animals", {"cid": 999, "drop": True})
+
+    def test_alterDBTable_sqlite_dropColumn_primaryKey_raisesValueError(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        fields = bs.getDBTable(bs.getDBCursor(), "animals")
+        pk_index = next(i for i, f in enumerate(fields) if f["key"] == 1)
+        with self.assertRaises(ValueError):
+            bs.alterDBTable("animals", {"cid": pk_index, "drop": True})
+
+    def test_alterDBTable_sqlite_dropColumn_lastColumn_raisesValueError(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        db = bs.getDBCursor()
+        db.execute("CREATE TABLE onecol (val TEXT)")
+        with self.assertRaises(ValueError):
+            bs.alterDBTable("onecol", {"cid": 0, "drop": True})
+
+    def test_alterDBTable_sqlite_dropColumn_oldSqliteVersion_raisesRuntimeError(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        fields = bs.getDBTable(bs.getDBCursor(), "animals")
+        non_pk_index = next(i for i, f in enumerate(fields) if f["key"] != 1)
+        with mock.patch("sqlite3.sqlite_version_info", (3, 30, 0)):
+            with self.assertRaises(RuntimeError):
+                bs.alterDBTable("animals", {"cid": non_pk_index, "drop": True})
+
+    def test_alterDBTable_mysqlMocked_dropColumn_success(self):
+        cursor = make_mysql_cursor(
+            fetchall=[("id", "INTEGER", "NO", "PRI", None, "auto_increment"),
+                      ("name", "TEXT", "YES", "", None, "")]
+        )
+        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=False,
+            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
+            jwt=False, gen_res=False, gen_db=False,
+        )
+        bs.alterDBTable("widgets", {"name": "name", "drop": True})
+        mock_conn.commit.assert_called()
+
+    def test_alterDBTable_mysqlMocked_dropColumn_primaryKey_raisesValueError(self):
+        cursor = make_mysql_cursor(
+            fetchall=[("id", "INTEGER", "NO", "PRI", None, "auto_increment"),
+                      ("name", "TEXT", "YES", "", None, "")]
+        )
+        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=False,
+            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
+            jwt=False, gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.alterDBTable("widgets", {"name": "id", "drop": True})
+
+    def test_alterDBTable_mysqlMocked_dropColumn_unknownColumn_raisesValueError(self):
+        cursor = make_mysql_cursor(
+            fetchall=[("id", "INTEGER", "NO", "PRI", None, "auto_increment")]
+        )
+        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=False,
+            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
+            jwt=False, gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.alterDBTable("widgets", {"name": "nonexistent", "drop": True})
+
+    def test_alterDBTable_mysqlMocked_dropColumn_lastColumn_raisesValueError(self):
+        cursor = make_mysql_cursor(
+            fetchall=[("val", "TEXT", "YES", "", None, "")]
+        )
+        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=False,
+            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
+            jwt=False, gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.alterDBTable("widgets", {"name": "val", "drop": True})
+
+    # --- dropTable ---
+    def test_dropTable_sqlite_removesTableAndCfg(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        cfg_dir, cfg_path = db_fixtures.temp_cfg_pointing_at(tmp_db)
+        self.addCleanup(shutil.rmtree, cfg_dir)
+        bs = BottleSuite(cfg_file=cfg_path, jwt=False, gen_res=False, gen_db=False)
+        bs.getResourceConfig("predations")["paths"] = ["/predations"]
+        bs.dropTable("predations")
+        self.assertNotIn("predations", bs.getDBTables())
+        self.assertNotIn("predations", bs.cfg.get("resources", {}))
+
+    def test_dropTable_unknownTable_raisesValueError(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.dropTable("nonexistent")
+
+    def test_dropTable_mysqlMocked_success(self):
+        # dropTable() calls saveConfig() on success -- use a real (cleaned
+        # up) temp cfg file rather than NONEXISTENT_CFG, which would
+        # otherwise get created as a stray file in tests/ (open(..., "w+")
+        # creates it if missing).
+        path = self._writeCfg("")
+        cursor = make_mysql_cursor()
+        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        cursor.fetchall.side_effect = [
+            [{"name": "widgets"}],
+            [{"Field": "id", "Type": "INTEGER", "Null": "NO", "Default": None, "Key": "PRI"}],
+        ]
+        bs = BottleSuite(
+            cfg_file=path, sqlite=False,
+            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
+            jwt=False, gen_res=False, gen_db=False,
+        )
+        bs.dropTable("widgets")
+        mock_conn.commit.assert_called()
+        mock_conn.close.assert_called()
+
+    # --- deleteResourceFile ---
+    def test_deleteResourceFile_removesFileAndCfg(self):
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            bs.createResourceFile("widget")
+            bs.deleteResourceFile("widget")
+            self.assertFalse(
+                os.path.exists(os.path.join(tmp, "resources", "widget.py"))
+            )
+            self.assertNotIn("widget", bs.cfg.get("resources", {}))
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_deleteResourceFile_missingFile_raisesFileNotFoundError(self):
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            with self.assertRaises(FileNotFoundError):
+                bs.deleteResourceFile("nonexistent")
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    # --- removePath ---
+    def test_removePath_validIndex_removes(self):
+        path = self._writeCfg("")
+        bs = BottleSuite(
+            cfg_file=path, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        bs.updatePaths("widgets", 0, "/a")
+        bs.updatePaths("widgets", 1, "/b")
+        bs.removePath("widgets", 0)
+        self.assertEqual(bs.cfg["resources"]["widgets"]["paths"], ["/b"])
+
+    def test_removePath_outOfRangeIndex_noop(self):
+        path = self._writeCfg("")
+        bs = BottleSuite(
+            cfg_file=path, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        bs.updatePaths("widgets", 0, "/a")
+        bs.removePath("widgets", 5)
+        self.assertEqual(bs.cfg["resources"]["widgets"]["paths"], ["/a"])
+
+    def test_removePath_noPathsYet_noop(self):
+        path = self._writeCfg("")
+        bs = BottleSuite(
+            cfg_file=path, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        bs.removePath("widgets", 0)
+        self.assertEqual(bs.cfg["resources"]["widgets"]["paths"], [])
+
     # --- getResourceConfig / updatePaths / updateRoles / saveConfig ---
     def test_getResourceConfig_freshConfigNoResourcesKey(self):
         # Regression for fix #5.

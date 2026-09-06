@@ -164,6 +164,41 @@ class TestBuildSpecHelpers(unittest.TestCase):
         schema = openapi._paramSchema(cb, skip={"db", "key"})
         self.assertEqual(set(schema["properties"]), {"name"})
 
+    def test_paramSchema_intDefault_inferredInteger(self):
+        def cb(qty=1):
+            pass
+
+        schema = openapi._paramSchema(cb, skip=set())
+        self.assertEqual(schema["properties"]["qty"], {"type": "integer"})
+
+    def test_paramSchema_floatDefault_inferredNumber(self):
+        def cb(price=1.5):
+            pass
+
+        schema = openapi._paramSchema(cb, skip=set())
+        self.assertEqual(schema["properties"]["price"], {"type": "number"})
+
+    def test_paramSchema_boolDefault_inferredBoolean_notInteger(self):
+        def cb(active=True):
+            pass
+
+        schema = openapi._paramSchema(cb, skip=set())
+        self.assertEqual(schema["properties"]["active"], {"type": "boolean"})
+
+    def test_paramSchema_noneDefault_fallsBackToString(self):
+        def cb(nickname=None):
+            pass
+
+        schema = openapi._paramSchema(cb, skip=set())
+        self.assertEqual(schema["properties"]["nickname"], {"type": "string"})
+
+    def test_paramSchema_unknownDefaultType_fallsBackToString(self):
+        def cb(tags=[]):
+            pass
+
+        schema = openapi._paramSchema(cb, skip=set())
+        self.assertEqual(schema["properties"]["tags"], {"type": "string"})
+
     def test_infoBlock_defaults(self):
         bs = BottleSuite(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,

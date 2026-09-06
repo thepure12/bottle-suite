@@ -34,11 +34,15 @@ const props = withDefaults(defineProps<{
   columnKeys?: string[]
   hiddenColumns?: string[]
   emptyMessage?: string
+  showDelete?: boolean
+  canDelete?: (item: Record<string, any>) => boolean
 }>(), {
   emptyMessage: 'No data available. Try refreshing - the server may be reloading.',
+  showDelete: false,
+  canDelete: () => true,
 })
 
-const emit = defineEmits<{ edit: [item: Record<string, any>]; refresh: [] }>()
+const emit = defineEmits<{ edit: [item: Record<string, any>]; delete: [item: Record<string, any>]; refresh: [] }>()
 
 const UButton = resolveComponent('UButton')
 
@@ -73,13 +77,22 @@ const columns = computed<TableColumn<Record<string, any>>[]>(() => {
   cols.push({
     id: 'actions',
     header: '',
-    cell: ({ row }) => h(UButton, {
-      icon: 'i-lucide-pencil',
-      color: 'neutral',
-      variant: 'ghost',
-      size: 'xs',
-      onClick: () => emit('edit', row.original),
-    }),
+    cell: ({ row }) => h('div', { class: 'flex justify-end gap-1' }, [
+      h(UButton, {
+        icon: 'i-lucide-pencil',
+        color: 'neutral',
+        variant: 'ghost',
+        size: 'xs',
+        onClick: () => emit('edit', row.original),
+      }),
+      props.showDelete && props.canDelete(row.original) ? h(UButton, {
+        icon: 'i-lucide-trash-2',
+        color: 'error',
+        variant: 'ghost',
+        size: 'xs',
+        onClick: () => emit('delete', row.original),
+      }) : null,
+    ]),
   })
   return cols
 })

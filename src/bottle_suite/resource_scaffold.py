@@ -45,3 +45,9 @@ def writeResourceFile(resources_dir: str, name: str) -> str:
     with open(file_path, "w") as f:
         f.write(render(className(name)))
     return file_path
+
+
+def deleteResourceFile(resources_dir: str, name: str) -> None:
+    """Remove resources/<name>.py. Raises FileNotFoundError if it isn't there."""
+    file_path = os.path.join(resources_dir, f"{name}.py")
+    os.remove(file_path)

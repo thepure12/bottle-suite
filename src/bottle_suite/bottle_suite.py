@@ -420,11 +420,62 @@ class BottleSuite(Bottle):
         self.reloadServer()
         return name
 
+    def dropTable(self, name):
+        if name not in self.getDBTables():
+            raise ValueError(f"Unknown table: {name}")
+        print(f"Dropping table {name}")
+        if self.sqlite:
+            with sqlite3.connect(self.sqlite.sql_config["database"]) as db:
+                db.execute(f"DROP TABLE {name}")
+                db.commit()
+        else:
+            # getDBTables() above already guarantees sqlite or sql is set.
+            conn = pymysql.connect(
+                host=self.sql.sql_config["host"],
+                user=self.sql.sql_config["user"],
+                password=self.sql.sql_config["password"],
+                database=self.sql.sql_config["database"],
+            )
+            try:
+                cur = conn.cursor()
+                cur.execute(f"DROP TABLE {name}")
+                conn.commit()
+            finally:
+                conn.close()
+        self.cfg.get("resources", {}).pop(name, None)
+        self.saveConfig()
+        self.reloadServer()
+        return name
+
     def alterDBTable(self, table, field_attrs):
         print(f"Altering {table} with {field_attrs}")
         if self.sqlite:
             with sqlite3.connect(self.sqlite.sql_config["database"]) as db:
                 fields = self.getSqliteTable(db, {"name": table})
+                if field_attrs.get("drop"):
+                    match = next(
+                        (f for f in fields if f[0] == field_attrs["cid"]), None
+                    )
+                    if match is None:
+                        raise ValueError(
+                            f"No such column cid={field_attrs['cid']} on {table}"
+                        )
+                    (cid, name, datatype, notnull, dflt, pk) = match
+                    if pk:
+                        raise ValueError(f"Cannot drop primary key column '{name}'")
+                    if len(fields) <= 1:
+                        raise ValueError(
+                            f"Cannot drop the only remaining column on '{table}'"
+                        )
+                    if sqlite3.sqlite_version_info < (3, 35, 0):
+                        raise RuntimeError(
+                            f"SQLite {sqlite3.sqlite_version} does not support "
+                            "DROP COLUMN (requires >= 3.35.0)"
+                        )
+                    db.execute(f"ALTER TABLE {table} DROP COLUMN {name}")
+                    db.commit()
+                    self.reloadServer()
+                    return
                 (cid, name, datatype, notnull, dflt, pk) = next(
                     (f for f in fields if f[0] == field_attrs["cid"]),
                     (
@@ -452,6 +503,34 @@ class BottleSuite(Bottle):
                               ADD COLUMN {name} {datatype} {dflt} {notnull} {pk}"""
                     db.execute(sql)
                 db.commit()
+        elif self.sql and field_attrs.get("drop"):
+            conn = pymysql.connect(
+                host=self.sql.sql_config["host"],
+                user=self.sql.sql_config["user"],
+                password=self.sql.sql_config["password"],
+                database=self.sql.sql_config["database"],
+            )
+            try:
+                cur = conn.cursor()
+                cur.execute(f"DESCRIBE {table}")
+                fields = cur.fetchall()
+                match = next(
+                    (f for f in fields if f[0] == field_attrs["name"]), None
+                )
+                if match is None:
+                    raise ValueError(
+                        f"No such column '{field_attrs['name']}' on {table}"
+                    )
+                if match[3] == "PRI":
+                    raise ValueError(f"Cannot drop primary key column '{match[0]}'")
+                if len(fields) <= 1:
+                    raise ValueError(
+                        f"Cannot drop the only remaining column on '{table}'"
+                    )
+                cur.execute(f"ALTER TABLE {table} DROP COLUMN {match[0]}")
+                conn.commit()
+            finally:
+                conn.close()
         self.reloadServer()
 
     def createResourceFile(self, name):
@@ -462,6 +541,15 @@ class BottleSuite(Bottle):
             os.path.join(os.getcwd(), "resources"), name
         )
         self.getResourceConfig(name)["paths"] = resource_scaffold.defaultPaths(name)
+        self.saveConfig()
+        self.reloadServer()
+        return name
+
+    def deleteResourceFile(self, name):
+        resource_scaffold.deleteResourceFile(
+            os.path.join(os.getcwd(), "resources"), name
+        )
+        self.cfg.get("resources", {}).pop(name, None)
         self.saveConfig()
         self.reloadServer()
         return name
@@ -478,6 +566,18 @@ class BottleSuite(Bottle):
             cfg_resource["paths"][index] = path
         except (IndexError, TypeError) as e:
             cfg_resource["paths"].append(path)
+        self.saveConfig()
+        self.reloadServer()
+
+    def removePath(self, resource, index):
+        print(f"Removing path for {resource}")
+        cfg_resource = self.getResourceConfig(resource)
+        if "paths" not in cfg_resource:
+            cfg_resource["paths"] = []
+        try:
+            cfg_resource["paths"].pop(index)
+        except IndexError:
+            pass
         self.saveConfig()
         self.reloadServer()
 

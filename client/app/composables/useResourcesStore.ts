@@ -72,23 +72,26 @@ export function useResourcesStore() {
       method: 'PATCH',
       body: { attr_name: attrName, value },
     })
-    // updateRoles/updatePaths/alterDBTable on the backend touch reload.py,
-    // which restarts the reloader=True dev process (see CLAUDE.md's "Live
-    // reload" note) - the immediate refetch can land in the brief window
-    // between the old process exiting and the new one binding the port, so
-    // retry a few times rather than surfacing a spurious save failure for an
-    // edit that already persisted to bottle_suite.toml.
-    let lastError: unknown
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        await fetchResource(name)
-        return
-      } catch (e) {
-        lastError = e
-        if (attempt < 4) await new Promise(resolve => setTimeout(resolve, 300))
-      }
-    }
-    throw lastError
+    await retryAfterReload(() => fetchResource(name))
+  }
+
+  // Removes one path/field entry from the resource without deleting the
+  // whole resource -- attr_name mirrors updateResourceAttr's dispatch shape.
+  async function removeResourceAttr(attrName: 'remove_path', index: number) {
+    if (!resource.value) return
+    const name = resource.value.name
+    const api = useApi()
+    await api(`/_resources/${name}`, {
+      method: 'PATCH',
+      body: { attr_name: attrName, value: { index } },
+    })
+    await retryAfterReload(() => fetchResource(name))
+  }
+
+  async function deleteResource(id: string) {
+    const api = useApi()
+    await api(`/_resources/${id}`, { method: 'DELETE' })
+    resources.value = resources.value.filter(r => r.id !== id)
   }
 
   async function fetchDatatypes() {
@@ -116,12 +119,25 @@ export function useResourcesStore() {
 
   async function updateEntry(entry: Record<string, unknown>, index: number) {
     if (!resource.value) return
+    const pk = resource.value.fields.find(f => f.key === 1)?.name
+    if (!pk) return
+    const { [pk]: _pk, ...body } = entry
     const api = useApi()
-    const updated = await api<Record<string, unknown>>(`/${resource.value.name}`, {
+    const updated = await api<Record<string, unknown>>(`/${resource.value.name}/${entry[pk]}`, {
       method: 'PATCH',
-      body: entry,
+      body,
     })
     entries.value[index] = updated
+  }
+
+  async function deleteEntry(index: number) {
+    if (!resource.value) return
+    const pk = resource.value.fields.find(f => f.key === 1)?.name
+    const entry = entries.value[index]
+    if (!pk || !entry) return
+    const api = useApi()
+    await api(`/${resource.value.name}/${entry[pk]}`, { method: 'DELETE' })
+    entries.value.splice(index, 1)
   }
 
   return {
@@ -131,11 +147,14 @@ export function useResourcesStore() {
     entries,
     fetchResources,
     addResource,
+    deleteResource,
     fetchResource,
     updateResourceAttr,
+    removeResourceAttr,
     fetchDatatypes,
     fetchEntries,
     addEntry,
     updateEntry,
+    deleteEntry,
   }
 }

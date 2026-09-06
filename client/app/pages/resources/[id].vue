@@ -23,7 +23,10 @@
         :column-keys="fallbackColumns"
         :hidden-columns="tab === 'Paths' ? ['index'] : []"
         :empty-message="emptyMessage"
+        :show-delete="showDelete"
+        :can-delete="canDelete"
         @edit="openEdit"
+        @delete="openDelete"
         @refresh="reload"
       />
     </UCard>
@@ -40,10 +43,20 @@
       :saving="savingItem"
       @save="onSave"
     />
+
+    <ConfirmDialog
+      v-model:open="deleteDialogOpen"
+      title="Delete this?"
+      :message="deleteMessage"
+      :loading="deleting"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
+import type { ResourceField } from '~/composables/useResourcesStore'
+
 const TABS = ['Fields', 'Paths', 'Roles', 'Entries'] as const
 type TabName = typeof TABS[number]
 
@@ -53,7 +66,7 @@ const { showError, showSuccess } = useToastError()
 const {
   resource, entries, datatypes,
   fetchResource, fetchDatatypes, fetchEntries,
-  updateResourceAttr, addEntry, updateEntry,
+  updateResourceAttr, removeResourceAttr, addEntry, updateEntry, deleteEntry,
 } = useResourcesStore()
 
 const resourceId = computed(() => route.params.id as string)
@@ -115,6 +128,14 @@ const disabledKeys = computed(() => {
   return keys
 })
 
+// Roles are fixed-cardinality (always all 5 HTTP methods) -- nothing to
+// remove there. The primary-key field can't be deleted (createResForDB
+// requires one; dropping it would break every generated CRUD method).
+const showDelete = computed(() => tab.value !== 'Roles')
+function canDelete(item: Record<string, any>) {
+  return !(tab.value === 'Fields' && item.key === 1)
+}
+
 const dialogOpen = ref(false)
 const isNew = ref(false)
 const editedItem = ref<Record<string, any>>({})
@@ -142,9 +163,49 @@ function openEdit(item: Record<string, any>) {
   isNew.value = false
   if (tab.value === 'Entries') {
     editedIndex.value = entries.value.indexOf(item)
+  } else if (tab.value === 'Fields') {
+    editedIndex.value = (resource.value?.fields ?? []).indexOf(item as ResourceField)
   }
   editedItem.value = { ...item }
   dialogOpen.value = true
+}
+
+const deleteDialogOpen = ref(false)
+const deleting = ref(false)
+const pendingDelete = ref<Record<string, any> | null>(null)
+
+const deleteMessage = computed(() => {
+  if (!pendingDelete.value) return ''
+  if (tab.value === 'Entries') return 'This entry will be permanently deleted.'
+  if (tab.value === 'Paths') return `Path "${pendingDelete.value.path}" will be removed.`
+  if (tab.value === 'Fields') return `Column "${pendingDelete.value.name}" will be permanently deleted.`
+  return 'This will be permanently deleted.'
+})
+
+function openDelete(item: Record<string, any>) {
+  pendingDelete.value = item
+  deleteDialogOpen.value = true
+}
+
+async function confirmDelete() {
+  if (!pendingDelete.value) return
+  deleting.value = true
+  try {
+    if (tab.value === 'Entries') {
+      await deleteEntry(entries.value.indexOf(pendingDelete.value))
+    } else if (tab.value === 'Paths') {
+      await removeResourceAttr('remove_path', pendingDelete.value.index)
+    } else if (tab.value === 'Fields') {
+      const cid = (resource.value?.fields ?? []).indexOf(pendingDelete.value as ResourceField)
+      await updateResourceAttr('fields', { cid, drop: true })
+    }
+    deleteDialogOpen.value = false
+    showSuccess('Deleted')
+  } catch (e: any) {
+    showError(e?.data?.message ?? 'Failed to delete')
+  } finally {
+    deleting.value = false
+  }
 }
 
 const roleOptions = computed(() => {
@@ -157,7 +218,14 @@ async function onSave(item: Record<string, any>) {
   savingItem.value = true
   try {
     if (tab.value === 'Fields') {
-      await updateResourceAttr('fields', item)
+      await updateResourceAttr('fields', {
+        cid: isNew.value ? null : editedIndex.value,
+        name: item.name,
+        type: item.type,
+        notnull: item.notnull ? 1 : 0,
+        dflt_value: item.default || null,
+        pk: item.key,
+      })
     } else if (tab.value === 'Paths') {
       await updateResourceAttr('paths', { index: item.index, path: item.path })
     } else if (tab.value === 'Roles') {

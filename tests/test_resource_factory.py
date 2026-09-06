@@ -70,12 +70,11 @@ class TestResourceFactorySqlite(unittest.TestCase):
         self.assertEqual(resp.json["predator"], 6)
         self.assertEqual(resp.json["prey"], 5)
 
-    # --- getRefs: levels>=2 engages nesting; the FK-metadata discovery
-    # query (FOREIGN_KEY_SQL) only understands MySQL's information_schema,
-    # so it's pre-seeded into the per-class cache here to isolate and
-    # exercise the row-nesting logic itself (regression for fix #2 and the
-    # set-vs-tuple binding bug fixed alongside it) without depending on
-    # that separate, pre-existing MySQL-only limitation.
+    # --- getRefs: levels>=2 engages nesting. FK metadata is pre-seeded here
+    # to isolate and exercise the row-nesting logic itself (regression for
+    # fix #2 and the set-vs-tuple binding bug fixed alongside it) separately
+    # from the real sqlite PRAGMA-based discovery, which is covered by
+    # test_getRefs_levels2_nestingEngages_sqlite_realDiscovery below.
     def test_getRefs_levels2_nestingEngages_sqlite(self):
         predations_resource = next(
             r for r in self.bs.rest.resources if r.name == "Predations"
@@ -100,17 +99,40 @@ class TestResourceFactorySqlite(unittest.TestCase):
         self.assertEqual(resp.json["predator"]["name"], "wolf")
         self.assertEqual(resp.json["prey"]["name"], "rabbit")
 
-    # --- nested /<ref_table>/<ref_id>/<table> route: currently crashes on
-    # sqlite because getRefs() unconditionally runs the MySQL-only
-    # FOREIGN_KEY_SQL discovery query for this branch (row=None), which has
-    # no sqlite equivalent anywhere in the codebase. This is a pre-existing,
-    # deeper architectural gap distinct from fixes #1-#13 (implementing
-    # sqlite FK introspection is a real feature addition, not a mechanical
-    # one-liner) -- characterized here, not fixed. See
-    # test_nestedRefTableRefId_mysqlMocked_* below for the working path.
-    def test_nestedRefTableRefId_sqlite_currentlyCrashes_characterized(self):
-        resp = self.app.get("/animals/6/predations", expect_errors=True)
-        self.assertEqual(resp.status_code, 500)
+    # --- getRefs: real FK discovery via PRAGMA foreign_key_list, no
+    # pre-seeded cache. Regression test for the sqlite branch added to
+    # getRefs() -- previously this path unconditionally ran the MySQL-only
+    # FOREIGN_KEY_SQL query and crashed with
+    # "sqlite3.OperationalError: no such table: information_schema...".
+    def test_getRefs_levels2_nestingEngages_sqlite_realDiscovery(self):
+        resp = self.app.get("/predations/1", {"levels": "2"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json["predator"]["name"], "wolf")
+        self.assertEqual(resp.json["prey"]["name"], "rabbit")
+
+    def test_getRefs_noForeignKeys_sqlite_returnsEmptyList(self):
+        # A table with no FKs still needs to resolve to an empty ref list
+        # (rather than crashing) via the same PRAGMA-based discovery.
+        resp = self.app.get("/animals/1", {"levels": "2"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json["name"], "dog")
+
+    # --- nested /<ref_table>/<ref_id>/<table> route on sqlite: previously
+    # crashed because getRefs() unconditionally ran the MySQL-only
+    # FOREIGN_KEY_SQL discovery query for this branch (row=None); now uses
+    # PRAGMA foreign_key_list and correctly filters the child table by its
+    # own FK column (not the parent's referenced column -- a separate,
+    # pre-existing bug fixed alongside the crash). "predations" has *two*
+    # FKs to "animals" (predator, prey); get()'s next(...) match-by-table
+    # lookup is inherently ambiguous in that case and always resolves to
+    # the first FK found (here: "prey") -- a separate, pre-existing
+    # limitation, not something this fix attempts to resolve. So id=5
+    # (the prey animal) resolves correctly; id=6 (predator) would not.
+    def test_nestedRefTableRefId_sqlite_returnsMatchingRow(self):
+        resp = self.app.get("/animals/5/predations")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json["predations"]), 1)
+        self.assertEqual(resp.json["predations"][0]["id"], 1)
 
     # --- POST / IntegrityError handling ---
     def test_post_creates_andReturnsCreatedRow(self):

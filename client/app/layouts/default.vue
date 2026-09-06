@@ -39,6 +39,7 @@
 const { logout } = useAuth()
 const route = useRoute()
 const { resources, fetchResources } = useResourcesStore()
+const { resources: pythonResources, fetchPythonResources } = usePythonResourcesStore()
 
 const NAV_ITEMS = [
   { label: 'Overview', icon: 'i-lucide-layout-grid', to: '/' },
@@ -81,12 +82,22 @@ const commandGroups = computed(() => [
     label: 'Resources',
     items: resources.value.map(r => ({ label: r.name, icon: 'i-lucide-table-2', to: `/resources/${r.id}` })),
   },
+  {
+    id: 'python-resources',
+    label: 'Python Resources',
+    items: pythonResources.value.map(r => ({ label: r.name, icon: 'i-lucide-file-code-2', to: `/python-resources/${r.name}` })),
+  },
 ])
 
 onMounted(() => {
   if (!resources.value.length) {
     fetchResources().catch(() => {
       // Ignore here - the resources page itself surfaces load failures.
+    })
+  }
+  if (!pythonResources.value.length) {
+    fetchPythonResources().catch(() => {
+      // Ignore here - the python-resources page itself surfaces load failures.
     })
   }
 })

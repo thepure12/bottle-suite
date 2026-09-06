@@ -145,3 +145,7 @@ def main():
         except Exception as e:
             print(f"{type(e)} {e}")
             time.sleep(5)
+
+
+if __name__ == "__main__":
+    main()

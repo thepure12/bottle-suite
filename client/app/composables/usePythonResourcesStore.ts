@@ -44,12 +44,30 @@ export function usePythonResourcesStore() {
   // array-mutation semantics locally.
   async function updateResourceAttr(attrName: 'roles' | 'paths', value: Record<string, unknown>) {
     if (!resource.value) return
+    const name = resource.value.name
     const api = useApi()
-    await api(`/_python_resources/${resource.value.name}`, {
+    await api(`/_python_resources/${name}`, {
       method: 'PATCH',
       body: { attr_name: attrName, value },
     })
-    await fetchPythonResource(resource.value.name)
+    await retryAfterReload(() => fetchPythonResource(name))
+  }
+
+  async function removeResourceAttr(attrName: 'remove_path', index: number) {
+    if (!resource.value) return
+    const name = resource.value.name
+    const api = useApi()
+    await api(`/_python_resources/${name}`, {
+      method: 'PATCH',
+      body: { attr_name: attrName, value: { index } },
+    })
+    await retryAfterReload(() => fetchPythonResource(name))
+  }
+
+  async function deletePythonResource(name: string) {
+    const api = useApi()
+    await api(`/_python_resources/${name}`, { method: 'DELETE' })
+    resources.value = resources.value.filter(r => r.name !== name)
   }
 
   return {
@@ -57,7 +75,9 @@ export function usePythonResourcesStore() {
     resource,
     fetchPythonResources,
     createPythonResource,
+    deletePythonResource,
     fetchPythonResource,
     updateResourceAttr,
+    removeResourceAttr,
   }
 }
