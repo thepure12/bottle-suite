@@ -1,39 +1,42 @@
 cors = true
-sqlite = "example.db"
-jwt = "lj5qoVZf_VsWmjLV3Fw1JzsLm_C8Ttyj5-bR6H5QwP8"
 rest = true
-sql = false
+sqlite = "example.db"
+# Demo-only signing key. Regenerate before using this config for anything
+# beyond this local example: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+jwt = "example-only-demo-key-do-not-reuse-3f9c2a7b"
 
 [dashboard]
-username = "admin"
-password_hash = "192179c28e7c3a4a588bd349fe1e79870fe9f5f3512087c52316f7b5ef6f3d85243119ecb7fd4f803752a5fc55731ce6d352abeb48937f4fd7230cce48d67b29"
+enabled = true
+# No username/password_hash committed on purpose - visit /dashboard (or
+# POST /dashboard/setup) on first run to choose your own admin credentials.
+# See example/README.md.
 
-[resources.artists]
-paths = [ "/artists/<key>", "/artists/<ArtistId>",]
-
-[resources.playlist_track]
-paths = [ "/playlists/<playlist_id>/tracks",]
-
-[resources.invoice_items]
-paths = [ "/invoices/<invoice_id>/items",]
-
-[resources.albums]
-paths = [ "/albums/<key>/artist", "/albums", "/eps", "/cds",]
-
-[resources.artists.roles]
-get = true
+[resources.projects.roles]
+get = false
 post = true
-put = false
-patch = false
-delete = false
-
-[resources.playlist_track.roles]
-get = true
-post = [ "admin", "user",]
-
-[resources.albums.roles]
-post = false
 put = true
-patch = false
+patch = true
+delete = [ "admin",]
 
-[resources.all.roles]
+[resources.tasks.roles]
+get = false
+post = true
+put = true
+patch = true
+delete = [ "admin",]
+
+[resources.tags.roles]
+get = false
+post = true
+delete = [ "admin",]
+
+[resources.task_tags.roles]
+get = false
+post = true
+delete = [ "admin",]
+
+[resources.project_tasks]
+paths = [ "/projects/<project_id>/tasks",]
+
+[resources.project_summary]
+paths = [ "/projects/<project_id>/summary",]
