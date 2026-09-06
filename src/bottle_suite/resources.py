@@ -120,12 +120,14 @@ class AllResources(Resource):
             for r in self.app.rest.resources:
                 name = getattr(r, "name", r.__class__.__name__)
                 table = getattr(r, "table", None)
-                if name in resources:
-                    if table:
-                        # TODO handle resource with multiple tables
-                        resources[name] = table
-                elif table:
-                    resources[name] = table
+                if not table:
+                    continue
+                if name in resources and resources[name] != table:
+                    # Same resource name but a different backing table -- keep
+                    # both instead of letting the later one silently overwrite
+                    # the earlier one's entry.
+                    name = f"{name} ({table})"
+                resources[name] = table
 
             return {
                 "resources": [

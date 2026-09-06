@@ -179,10 +179,10 @@ class TestAllResourcesGet(unittest.TestCase):
         all_resources = next(r for r in self.bs.rest.resources if r.name == "AllResources")
         self.assertIsNone(all_resources.options())
 
-    def test_list_duplicateNameBothWithTable_lastTableWins_characterized(self):
-        # Two resources sharing a .name, both with a .table attribute --
-        # documents that the TODO'd branch ("handle resource with multiple
-        # tables") just overwrites with the later one.
+    def test_list_duplicateNameDifferentTables_bothKept(self):
+        # Two resources sharing a .name but backed by different tables --
+        # both must show up rather than the later one silently overwriting
+        # the earlier one's entry.
         class Fake:
             name = "Dup"
             table = "table_a"
@@ -194,8 +194,27 @@ class TestAllResourcesGet(unittest.TestCase):
         self.bs.rest.resources.append(Fake())
         self.bs.rest.resources.append(Fake2())
         resp = self.app.get("/_resources")
-        dup_entries = [r for r in resp.json["resources"] if r["name"] == "Dup"]
-        self.assertEqual(dup_entries, [{"name": "Dup", "id": "table_b"}])
+        dup_entries = {
+            r["name"]: r["id"]
+            for r in resp.json["resources"]
+            if r["name"].startswith("Dup")
+        }
+        self.assertEqual(dup_entries, {"Dup": "table_a", "Dup (table_b)": "table_b"})
+
+    def test_list_duplicateNameSameTable_singleEntry(self):
+        # The common case: the same resource instance registered under
+        # multiple rules appears multiple times in self.app.rest.resources --
+        # it must collapse to one entry, not duplicate/disambiguate.
+        class Fake:
+            name = "Dup3"
+            table = "table_a"
+
+        resource = Fake()
+        self.bs.rest.resources.append(resource)
+        self.bs.rest.resources.append(resource)
+        resp = self.app.get("/_resources")
+        dup_entries = [r for r in resp.json["resources"] if r["name"] == "Dup3"]
+        self.assertEqual(dup_entries, [{"name": "Dup3", "id": "table_a"}])
 
     def test_list_duplicateNameSecondHasNoTable_firstTableKept(self):
         class Fake:

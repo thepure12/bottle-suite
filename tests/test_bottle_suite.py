@@ -428,12 +428,13 @@ class TestBottleSuite(unittest.TestCase):
         self.assertEqual(cfg["roles"], True)
 
     # --- createResForDB ---
-    def test_createResForDB_misconfigured_noop(self):
+    def test_createResForDB_misconfigured_raises(self):
         bs = BottleSuite(
             cfg_file=NONEXISTENT_CFG, rest=False, sqlite=False, sql=False,
             jwt=False, gen_res=False, gen_db=False,
         )
-        bs.createResForDB()  # else: pass branch -- should not raise
+        with self.assertRaises(Exception):
+            bs.createResForDB()
 
     def test_createResForDB_skipsTableWithoutPrimaryKey_mysqlMocked(self):
         # Regression for fix #3.

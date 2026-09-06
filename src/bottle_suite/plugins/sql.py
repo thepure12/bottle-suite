@@ -54,7 +54,10 @@ class SQLPlugin:
         for plugin in app.plugins:
             if not isinstance(plugin, SQLPlugin):
                 continue
-            # TODO check keyword conflict
+            if plugin.keyword == self.keyword:
+                raise bottle.PluginError(
+                    "Found another SQL plugin with conflicting settings (non-unique keyword)."
+                )
 
     def apply(self, callback, route):
         # hack to support bottle v0.9.x

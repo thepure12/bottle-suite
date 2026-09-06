@@ -35,28 +35,28 @@ def createResource(name, fields, sql=False):
         refs = {}  # reference table cache
 
         def getRefs(self, db, table, row: dict = None, levels=1) -> Union[dict, None]:
-            # TODO clean this up
-            if levels > 1 or not row:
-                levels -= 1
-                _refs = self.refs.get(table)  # Get cached references
-                if not _refs:
-                    db.execute(FOREIGN_KEY_SQL + f"'{table}'")
-                    _refs = db.fetchall()
-                    self.refs[table] = _refs
-                if row:
-                    for ref in _refs:
-                        table, col, ref_table, ref_col = tuple(ref.values())
-                        if not row[col]:
-                            continue
-                        sql = f"select * from {ref_table} where {ref_col}={self.bind_char}"
-                        db.execute(sql, (row[col],))
-                        row.pop(col)
-                        for t in REPLACE_TEXT:
-                            col = col.replace(t, "")
-                        ref_row = db.fetchone()
-                        self.getRefs(db, ref_table, ref_row, levels)
-                        row[col] = ref_row
-                return _refs
+            if levels <= 1 and row:
+                return None
+            levels -= 1
+            _refs = self.refs.get(table)  # Get cached references
+            if not _refs:
+                db.execute(FOREIGN_KEY_SQL + f"'{table}'")
+                _refs = db.fetchall()
+                self.refs[table] = _refs
+            if row:
+                for ref in _refs:
+                    _, col, ref_table, ref_col = tuple(ref.values())
+                    if not row[col]:
+                        continue
+                    sql = f"select * from {ref_table} where {ref_col}={self.bind_char}"
+                    db.execute(sql, (row[col],))
+                    row.pop(col)
+                    for t in REPLACE_TEXT:
+                        col = col.replace(t, "")
+                    ref_row = db.fetchone()
+                    self.getRefs(db, ref_table, ref_row, levels)
+                    row[col] = ref_row
+            return _refs
 
         def options(self):
             pass
@@ -190,12 +190,6 @@ def createResource(name, fields, sql=False):
             )
             setattr(cls, _name.lower(), locals().get("func"))
 
-    # TODO this is likely legacy, probably should remove if
-    # if sql:
-    #     ChildResource.createFunction("post")
-    #     ChildResource.createFunction("put")
-    #     ChildResource.createFunction("patch")
-    # else:
     ChildResource.createFunction(
         "post",
         *[f["name"] for f in fields if f["name"] != ChildResource.key],

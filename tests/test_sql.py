@@ -167,16 +167,32 @@ class TestSQLPluginConstructor(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_setup_noKeywordConflictCheck_isNoop(self):
+    def test_setup_duplicateKeyword_raisesPluginError(self):
         plugin_a = SQLPlugin(Engine.SQL, {"database": "d"}, keyword="db")
         plugin_b = SQLPlugin(Engine.SQL, {"database": "d"}, keyword="db")
 
         class FakeApp:
             plugins = [plugin_a]
 
-        # TODO in setup() means this never actually raises, even with a
-        # duplicate keyword -- documents the current (unimplemented) state.
-        plugin_b.setup(FakeApp())
+        with self.assertRaises(bottle.PluginError):
+            plugin_b.setup(FakeApp())
+
+    def test_setup_differentKeyword_isNoop(self):
+        plugin_a = SQLPlugin(Engine.SQL, {"database": "d"}, keyword="db")
+        plugin_b = SQLPlugin(Engine.SQL, {"database": "d"}, keyword="other")
+
+        class FakeApp:
+            plugins = [plugin_a]
+
+        plugin_b.setup(FakeApp())  # no raise
+
+    def test_setup_ignoresNonSqlPlugins(self):
+        plugin = SQLPlugin(Engine.SQL, {"database": "d"}, keyword="db")
+
+        class FakeApp:
+            plugins = [object()]
+
+        plugin.setup(FakeApp())  # no raise
 
 
 class TestSQLPluginFactories(unittest.TestCase):

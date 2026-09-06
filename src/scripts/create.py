@@ -201,14 +201,11 @@ def createResourceFile(name):
         cprint(f"(error) Invalid resource name: {name}", Colors.RED)
         exit()
     resources_dir = os.path.join(os.getcwd(), "resources")
-    os.makedirs(resources_dir, exist_ok=True)
-    file_path = os.path.join(resources_dir, f"{name}.py")
-    if os.path.exists(file_path):
-        cprint(f"(error) Resource '{name}' already exists.", Colors.RED)
+    try:
+        resource_scaffold.writeResourceFile(resources_dir, name)
+    except FileExistsError as e:
+        cprint(f"(error) {e}.", Colors.RED)
         exit()
-    class_name = "".join(p.capitalize() for p in name.split("_"))
-    with open(file_path, "w") as f:
-        f.write(resource_scaffold.render(class_name))
 
 
 def updateResourceConfig(name):
@@ -218,10 +215,9 @@ def updateResourceConfig(name):
             project_cfg = toml.load(f)
     else:
         project_cfg = {}
-    project_cfg.setdefault("resources", {}).setdefault(name, {})["paths"] = [
-        f"/{name}",
-        f"/{name}/<key>",
-    ]
+    project_cfg.setdefault("resources", {}).setdefault(name, {})[
+        "paths"
+    ] = resource_scaffold.defaultPaths(name)
     with open(cfg_path, "w") as f:
         toml.dump(project_cfg, f)
 

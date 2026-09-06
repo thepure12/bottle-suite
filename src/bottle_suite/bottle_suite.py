@@ -91,7 +91,8 @@ class BottleSuite(Bottle):
             openapi = self.cfg["openapi"]
         self.setupCors(cors)
         if sql and sqlite:
-            # TODO allow multiple databases
+            # Only one DB backend at a time: getDBCursor/getDBTables and every
+            # generated resource's bind_char assume a single connection.
             raise Exception("Cannot use both sql and sqlite")
         self.setupSql(sql)
         self.setupSqlite(sqlite)
@@ -268,36 +269,42 @@ class BottleSuite(Bottle):
             resource.setRouteConfig(meth, route_cfg)
 
     def createResForDB(self):
+        if not (self.sql or self.sqlite):
+            raise Exception(
+                "createResForDB requires a configured database (sql or sqlite)"
+            )
+        if not self.rest:
+            # No REST plugin installed to attach generated resources to --
+            # a project can legitimately configure a database without rest.
+            return
         rules = {r.rule for r in self.routes}
-        if self.rest and (self.sql or self.sqlite):
-            for table, fields in self.getDBTables().items():
-                if not any(f["key"] == 1 for f in fields):
-                    print(
-                        f"Skipping resource generation for table '{table}': no primary key found"
-                    )
-                    continue
-                resource = resource_factory.createResource(table, fields, self.sql)
-                self.setRoles(resource, table)
-                endpoints = []
-                if f"/{table}" not in rules:
-                    endpoints = [f"/{table}"]
-                if resource.key and f"/{table}/<key>" not in rules:
-                    endpoints.append(f"/{table}/<key>")
-                # endpoints += self.getRefEndpoints(table)
-                # TODO Check resource to see if this rule is needed
-                if f"/<ref_table>/<ref_id>/{table}" not in rules:
-                    endpoints.append(f"/<ref_table>/<ref_id>/{table}")
-                try:
-                    for path in self.cfg["resources"][table]["paths"]:
-                        if path not in rules:
-                            endpoints.append(path)
-                except KeyError:
-                    pass
-                if endpoints:
-                    self.rest.addResource(resource, endpoints)
-        else:
-            # TODO raise error
-            pass
+        for table, fields in self.getDBTables().items():
+            if not any(f["key"] == 1 for f in fields):
+                print(
+                    f"Skipping resource generation for table '{table}': no primary key found"
+                )
+                continue
+            resource = resource_factory.createResource(table, fields, self.sql)
+            self.setRoles(resource, table)
+            endpoints = []
+            if f"/{table}" not in rules:
+                endpoints = [f"/{table}"]
+            if resource.key and f"/{table}/<key>" not in rules:
+                endpoints.append(f"/{table}/<key>")
+            # Generic nested-ref route: resource_factory's get() resolves
+            # the actual FK relationship (if any) at request time via
+            # getRefs, so this single rule covers every table without
+            # needing per-relationship routes from getRefEndpoints.
+            if f"/<ref_table>/<ref_id>/{table}" not in rules:
+                endpoints.append(f"/<ref_table>/<ref_id>/{table}")
+            try:
+                for path in self.cfg["resources"][table]["paths"]:
+                    if path not in rules:
+                        endpoints.append(path)
+            except KeyError:
+                pass
+            if endpoints:
+                self.rest.addResource(resource, endpoints)
 
     def getRefEndpoints(self, table):
         sql = resource_factory.FOREIGN_KEY_SQL + f"'{table}'"
@@ -352,8 +359,8 @@ class BottleSuite(Bottle):
             None: 0,
             "": 0,
             "PRI": 1,
-            "MUL": 0,  # TODO
-            "UNI": 0,  # TODO
+            "MUL": 0,  # indexed, non-unique -- not a primary key, no distinct treatment yet
+            "UNI": 0,  # unique, non-primary -- not a primary key, no distinct treatment yet
         }
         try:
             db.execute(f"PRAGMA table_info('{table}')")
@@ -451,15 +458,10 @@ class BottleSuite(Bottle):
         name = name.strip().lower()
         if not resource_scaffold.NAME_RE.match(name):
             raise ValueError(f"Invalid resource name: {name}")
-        resources_dir = os.path.join(os.getcwd(), "resources")
-        os.makedirs(resources_dir, exist_ok=True)
-        file_path = os.path.join(resources_dir, f"{name}.py")
-        if os.path.exists(file_path):
-            raise FileExistsError(f"Resource '{name}' already exists")
-        class_name = "".join(p.capitalize() for p in name.split("_"))
-        with open(file_path, "w") as f:
-            f.write(resource_scaffold.render(class_name))
-        self.getResourceConfig(name)["paths"] = [f"/{name}", f"/{name}/<key>"]
+        resource_scaffold.writeResourceFile(
+            os.path.join(os.getcwd(), "resources"), name
+        )
+        self.getResourceConfig(name)["paths"] = resource_scaffold.defaultPaths(name)
         self.saveConfig()
         self.reloadServer()
         return name
