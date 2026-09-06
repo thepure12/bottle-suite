@@ -118,6 +118,12 @@ onMounted(async () => {
 .nuxt-swagger-ui-viewer {
   height: 100%;
   overflow: auto;
+  /* Swagger UI's stylesheet only sets its own (dark-on-light) text colors,
+     never a background - it assumes it's mounted on a white page. With its
+     built-in dark-mode toggle disabled (see SwaggerUIViewer's onMounted),
+     it must get a fixed light backdrop here instead, or it inherits the
+     dashboard's dark-mode page background and becomes unreadable. */
+  background-color: #fff;
 }
 
 .nuxt-swagger-ui-loading,

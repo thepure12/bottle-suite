@@ -8,7 +8,7 @@
       icon="i-lucide-flask-conical"
       message="API docs are disabled. Enable [openapi] in bottle_suite.toml to turn them on."
     />
-    <ClientOnly v-else class="flex-1 min-h-0">
+    <ClientOnly v-else class="flex-1 min-h-0 border border-default rounded-lg overflow-hidden">
       <SwaggerUIViewer :spec-url="specUrl" />
     </ClientOnly>
   </div>
