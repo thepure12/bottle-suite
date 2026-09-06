@@ -7,11 +7,11 @@
     "node": ">=20.12"
   },
   "scripts": {
-    "dev": "nuxt dev",
+    "dev": "node scripts/dev-with-api-port.mjs",
     "build": "nuxt build",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare && node scripts/copy-redoc-bundle.mjs && node scripts/copy-swagger-bundle.mjs",
+    "postinstall": "nuxt prepare && node scripts/copy-swagger-bundle.mjs",
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
@@ -26,7 +26,6 @@
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.24",
     "@types/node": "^22.20.1",
-    "redoc": "^2.5.3",
     "swagger-ui-dist": "^5.32.15",
     "typescript": "^5.7.3",
     "vue-tsc": "^3.3.11"

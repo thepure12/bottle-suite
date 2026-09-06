@@ -44,7 +44,6 @@ const NAV_ITEMS = [
   { label: 'Overview', icon: 'i-lucide-layout-grid', to: '/' },
   { label: 'DB Resources', icon: 'i-lucide-package', to: '/resources' },
   { label: 'Python Resources', icon: 'i-lucide-file-code-2', to: '/python-resources' },
-  { label: 'API Docs', icon: 'i-lucide-book-open-text', to: '/api-docs' },
   { label: 'API Explorer', icon: 'i-lucide-flask-conical', to: '/api-explorer' },
   { label: 'Config', icon: 'i-lucide-settings', to: '/config' },
 ]

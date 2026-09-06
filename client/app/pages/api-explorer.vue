@@ -15,9 +15,8 @@
 </template>
 
 <script setup lang="ts">
-// Swagger UI has no equivalent of Redoc's theme option (see api-docs.vue) -
-// it ships its own fixed light-mode look, so no colorMode/brand-token wiring
-// here.
+// Swagger UI ships its own fixed light-mode look with no theme option, so no
+// colorMode/brand-token wiring here.
 definePageMeta({ title: 'API Explorer' })
 
 const runtimeConfig = useRuntimeConfig()

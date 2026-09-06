@@ -71,9 +71,9 @@ function loadScript(src: string, isLoaded: () => boolean) {
 
 onMounted(async () => {
   try {
-    // Vendored locally by scripts/copy-swagger-bundle.mjs (postinstall),
-    // same reasoning as modules/nuxt-redoc - keeps the dashboard fully
-    // self-hosted/offline instead of pulling from a CDN.
+    // Vendored locally by scripts/copy-swagger-bundle.mjs (postinstall) -
+    // keeps the dashboard fully self-hosted/offline instead of pulling from
+    // a CDN.
     const base = useRuntimeConfig().app.baseURL
     loadStylesheet(`${base}vendor/swagger/swagger-ui.css`)
     await loadScript(`${base}vendor/swagger/swagger-ui-bundle.js`, () => !!window.SwaggerUIBundle)

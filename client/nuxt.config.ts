@@ -8,14 +8,10 @@ import { fileURLToPath } from 'node:url'
 export default defineNuxtConfig({
   ssr: false,
 
-  modules: ['@nuxt/ui', './modules/nuxt-redoc/module.ts', './modules/nuxt-swagger-ui/module.ts'],
+  modules: ['@nuxt/ui', './modules/nuxt-swagger-ui/module.ts'],
 
-  // api-docs.vue / api-explorer.vue drive <RedocViewer>/<SwaggerUIViewer>
-  // directly (loading/disabled-state detection lives there already), so skip
-  // each module's own auto-added page.
-  redoc: {
-    route: false,
-  },
+  // api-explorer.vue drives <SwaggerUIViewer> directly (loading/disabled-state
+  // detection lives there already), so skip the module's own auto-added page.
   swaggerUi: {
     route: false,
   },
@@ -71,7 +67,11 @@ export default defineNuxtConfig({
       // Baked in at `nuxt generate` time (no server left at request time to
       // resolve this dynamically under ssr:false). '' = same-origin, correct
       // for production where Bottle serves both the API and the dashboard.
-      // Overridden via client/.env's NUXT_PUBLIC_API_BASE for `nuxt dev`.
+      // `npm run dev` overrides this via NUXT_PUBLIC_API_BASE, set only for
+      // that invocation by scripts/dev-with-api-port.mjs - deliberately not
+      // a `.env` file, since Nuxt auto-injects any NUXT_PUBLIC_* env var at
+      // `nuxt generate`/`build` time too, and a leftover dev `.env` would
+      // silently bake a dev API base into the production static build.
       apiBase: '',
     },
   },
