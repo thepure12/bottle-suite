@@ -18,7 +18,9 @@ projects --< tasks >-- tags   (many-to-many via task_tags)
 Every table has its own single-column `id` primary key (including the join
 table), so all four get correct, auto-generated CRUD routes
 (`/projects`, `/projects/<key>`, `/tasks`, ... ) - see `bottle_suite.toml`
-for the `[resources.<table>.roles]` sections gating writes.
+for the `[resources.<table>.roles]` sections gating writes. Auto-CRUD also
+follows foreign keys at request time (`?levels=`, and a generic nested-ref
+route) - see the FK-following examples under "Try it" below.
 
 ## Run it
 
@@ -109,6 +111,12 @@ require that token to carry the `admin` role:
 curl localhost:8080/projects                    # auto-CRUD, public
 curl localhost:8080/projects/1/tasks             # custom resource, joined with tags
 curl localhost:8080/projects/1/summary           # custom resource, aggregate counts
+curl localhost:8080/health                       # custom resource, default path (no [resources.health] entry)
+
+curl localhost:8080/tasks/1                      # auto-CRUD, get by primary key
+curl localhost:8080/tasks?priority=high          # auto-CRUD, filter by query param (LIKE match)
+curl 'localhost:8080/tasks/1?levels=2'           # auto-CRUD, follows the project_id FK, inlines it as "project"
+curl localhost:8080/tags/1/task_tags             # auto-CRUD, generic nested-ref route (unshadowed by any hand-written resource)
 
 curl -X POST localhost:8080/tasks \
   -H "Authorization: Bearer <alice's token>" \
@@ -137,14 +145,20 @@ a 403 on `DELETE` even though it's accepted for writes.
 
 ## `resources/`
 
-`project_tasks.py` and `project_summary.py` are hand-written `Resource`
-subclasses, not auto-generated. Auto-CRUD only ever queries one table, so
-they exist for the two cases it can't cover:
+Three hand-written `Resource` subclasses live here, not auto-generated -
+`project_tasks.py`/`project_summary.py` for the two things a single-table
+auto-CRUD route genuinely can't do, plus `health.py` to show what happens
+when a custom resource has no matching config in `bottle_suite.toml`:
 
-- **Cross-table joins** (`project_tasks.py`) - the framework does have a
-  built-in nested-ref/`?levels=` FK-following feature for this, but it's
-  implemented via a MySQL-only `information_schema` query, so it doesn't
-  work against this sqlite-backed example. A plain SQL join in a custom
-  resource is the correct fix on sqlite.
+- **Multi-table joins** (`project_tasks.py`) - auto-CRUD's nested-ref/
+  `?levels=` FK-following (see "Try it" above) only follows one
+  relationship at a time. This response flattens three tables
+  (`tasks -> task_tags -> tags`) into one row per task with a concatenated
+  tag list, which is beyond a single FK hop - a plain SQL join in a custom
+  resource is the correct fix for that, on sqlite or MySQL alike.
 - **Computed/aggregate responses** (`project_summary.py`) - counts and
   sums have no auto-CRUD equivalent at all.
+- **Default path fallback** (`health.py`) - it has no `[resources.health]`
+  section in `bottle_suite.toml` at all, unlike the two resources above
+  (which configure a custom `paths = [...]`). With no config to look up,
+  `BottleSuite` falls back to `/<module_name>`, i.e. `/health`.

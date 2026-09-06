@@ -113,3 +113,24 @@ app = BottleSuite()
 app.rest.addResource(ResourceA, "/resource_a")
 app.run(reloader=True)
 ```
+
+### Auto-Generated Database Resources
+When a SQLite or SQL database is configured (`sqlite=...` / `sql=...`, via
+the constructor or `bottle_suite.toml`), `BottleSuite` introspects every
+table on startup and auto-generates a full CRUD `Resource` for each table
+that doesn't already have a route (`gen_db=True` by default - pass
+`gen_db=False` to disable). Only tables with a detected primary key are
+eligible.
+
+For a table `widgets` with primary key `id`, this registers:
+- `GET/POST /widgets` - list (filterable by any `?column=value`, LIKE-matched) / create
+- `GET/PUT/PATCH/DELETE /widgets/<id>` - fetch/replace/patch/delete a single row
+- `GET /<ref_table>/<ref_id>/widgets` - fetch rows referencing another table's row via a detected foreign key
+
+Any auto-CRUD `GET` also accepts `?levels=N` to inline foreign-key
+references N levels deep - e.g. `GET /widgets/1?levels=2` replaces a
+`category_id` column with a nested `category` object.
+
+Per-table role gating and custom paths are configured under
+`[resources.<table>]` in `bottle_suite.toml`. See `example/` for a full
+working demo (`example/bottle_suite.toml`, `example/README.md`).
