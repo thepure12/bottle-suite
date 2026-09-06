@@ -361,12 +361,18 @@ class TestBottleSuite(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.body, b"<html>spa shell</html>")
 
-    def test_setupDashboard_overridesDefaultAuthFunc(self):
+    def test_setupDashboard_wiresOwnTokenPath_leavesTokenAlone(self):
+        from bottle_suite.plugins.jwt import authFunc
+
         bs = BottleSuite(
             cfg_file=NONEXISTENT_CFG, dashboard=True, jwt="k", sqlite=False,
             sql=False, gen_res=False, gen_db=False,
         )
-        self.assertEqual(bs.jwt.token_paths["token"], bs.dashboard_token.authenticate)
+        self.assertEqual(
+            bs.jwt.token_paths["dashboardtoken"], bs.dashboard_token.authenticate
+        )
+        self.assertIs(bs.jwt.token_paths["token"], authFunc)
+        self.assertTrue(any(r.rule == "/dashboard/token" for r in bs.routes))
 
     def test_setupDashboard_dictConfig_enabledKeyRespected(self):
         bs = BottleSuite(

@@ -121,11 +121,19 @@ class BottleSuite(Bottle):
                     f"Dashboard enabled but no build found at {DIST} - run 'make dashboard'"
                 )
             self.dashboard_token = DashboardToken(self)
-            if self.jwt and self.jwt.token_paths["token"] == authFunc:
-                # If using dashboard and not auth function is set, override the default one.
-                # A project that supplies its own auth_func keeps that one instead, so the
-                # dashboard's /dashboard/setup credentials won't be used to log into /token.
-                self.jwt.token_paths["token"] = self.dashboard_token.authenticate
+            if self.jwt:
+                # The dashboard's bootstrapped admin account (see
+                # /dashboard/setup) logs in through its own route, never
+                # /token - that endpoint is the project's own API auth,
+                # whatever it's wired to, and must never be silently
+                # replaced by dashboard credentials. JWTPlugin.apply() keys
+                # off route.rule with "/" stripped, so "dashboardtoken" is
+                # what "/dashboard/token" collapses to. It's excluded from
+                # the OpenAPI spec/`_resources` like the rest of /dashboard.
+                self.jwt.addTokenPath("dashboardtoken", self.dashboard_token.authenticate)
+                self.route("/dashboard/token", "GET", self.dashboard_token.authenticate)
+                self.route("/dashboard/token", "POST", self.dashboard_token.authenticate)
+                self.route("/dashboard/token", "OPTIONS", self.dashboard_token.authenticate)
             self.route("/dashboard/_nuxt/<filename>", method="GET", callback=nuxt)
             self.route(
                 ["/dashboard", "/dashboard<path:path>"],

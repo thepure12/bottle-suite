@@ -16,7 +16,7 @@ export function useAuth() {
 
   async function login(username: string, password: string) {
     const api = useApi()
-    const res = await api<{ token: string }>('/token', {
+    const res = await api<{ token: string }>('/dashboard/token', {
       method: 'POST',
       body: { username, password },
     })

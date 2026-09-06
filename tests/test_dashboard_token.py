@@ -150,7 +150,9 @@ class TestDashboardSetupEndpoint(unittest.TestCase):
 
     def test_setupDashboard_wiresBoundAuthenticate(self):
         bs, _ = self._app()
-        self.assertEqual(bs.jwt.token_paths["token"], bs.dashboard_token.authenticate)
+        self.assertEqual(
+            bs.jwt.token_paths["dashboardtoken"], bs.dashboard_token.authenticate
+        )
 
     def test_get_reportsNotConfigured_thenConfigured(self):
         bs, app = self._app()
@@ -171,7 +173,9 @@ class TestDashboardSetupEndpoint(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json, {"configured": True})
 
-        resp = app.post_json("/token", {"username": "admin", "password": "secret"})
+        resp = app.post_json(
+            "/dashboard/token", {"username": "admin", "password": "secret"}
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertIn("token", resp.json)
 
