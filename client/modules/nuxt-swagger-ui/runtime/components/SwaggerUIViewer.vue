@@ -17,7 +17,6 @@ import { useCookie, useRuntimeConfig } from '#imports'
 declare global {
   interface Window {
     SwaggerUIBundle?: any
-    SwaggerUIStandalonePreset?: any
   }
 }
 
@@ -77,9 +76,8 @@ onMounted(async () => {
     const base = useRuntimeConfig().app.baseURL
     loadStylesheet(`${base}vendor/swagger/swagger-ui.css`)
     await loadScript(`${base}vendor/swagger/swagger-ui-bundle.js`, () => !!window.SwaggerUIBundle)
-    await loadScript(`${base}vendor/swagger/swagger-ui-standalone-preset.js`, () => !!window.SwaggerUIStandalonePreset)
 
-    if (!window.SwaggerUIBundle || !window.SwaggerUIStandalonePreset) {
+    if (!window.SwaggerUIBundle) {
       throw new Error('Swagger UI failed to attach to window')
     }
 
@@ -89,9 +87,13 @@ onMounted(async () => {
     window.SwaggerUIBundle({
       url: spec,
       domNode: containerRef.value,
-      presets: [window.SwaggerUIBundle.presets.apis, window.SwaggerUIStandalonePreset],
+      // Deliberately not using SwaggerUIStandalonePreset/StandaloneLayout:
+      // its Topbar is the only thing that renders a URL bar (redundant -
+      // specUrl is set programmatically) and Swagger's own dark-mode toggle,
+      // which reads the OS prefers-color-scheme independently of the
+      // dashboard's own color mode and conflicts with it.
+      presets: [window.SwaggerUIBundle.presets.apis],
       plugins: [window.SwaggerUIBundle.plugins.DownloadUrl],
-      layout: 'StandaloneLayout',
       // Reuse the dashboard's own JWT cookie so "Try it out" works against
       // protected endpoints without re-entering a token in Swagger's own
       // Authorize dialog - mirrors useApi.ts's onRequest bearer attachment.
