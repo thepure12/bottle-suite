@@ -11,6 +11,7 @@ from bottle_suite.plugins import rest as bottle_rest
 from bottle_suite.plugins import jwt as bottle_jwt
 import toml
 import os
+import sys
 import shutil
 import tempfile
 import sqlite3
@@ -98,6 +99,27 @@ class TestBottleSuite(unittest.TestCase):
         self.app = webtest.TestApp(self.bottle_suite)
         self.assertIn("FileResource", self.bottle_suite.resource_names)
         self.assertEqual(200, self.app.get("/file_resource").status_code)
+
+    def test_genFileResource_relativeImport(self):
+        # resources/relative_import_resource.py does `from . import _shared`
+        # -- only works because resources/ is loaded as a real package.
+        self.bottle_suite = BottleSuite(gen_res=True, gen_db=False)
+        self.app = webtest.TestApp(self.bottle_suite)
+        self.assertIn("RelativeImportResource", self.bottle_suite.resource_names)
+        resp = self.app.get("/relative_import_resource")
+        self.assertEqual(200, resp.status_code)
+        self.assertEqual("hello from _shared", resp.json["greeting"])
+
+    def test_genFileResource_absoluteProjectImport(self):
+        # resources/absolute_import_resource.py does
+        # `from project_util import PROJECT_GREETING`, a module living at
+        # the project root (tests/) rather than inside resources/.
+        self.bottle_suite = BottleSuite(gen_res=True, gen_db=False)
+        self.app = webtest.TestApp(self.bottle_suite)
+        self.assertIn("AbsoluteImportResource", self.bottle_suite.resource_names)
+        resp = self.app.get("/absolute_import_resource")
+        self.assertEqual(200, resp.status_code)
+        self.assertEqual("hello from project_util", resp.json["greeting"])
 
     # JWT
     def test_initJWT(self):
@@ -411,6 +433,33 @@ class TestBottleSuite(unittest.TestCase):
         finally:
             os.chdir(cwd)
             shutil.rmtree(tmp)
+
+    def test_setupRest_genTrue_removesSysPathEntryItAdded(self):
+        cwd = os.getcwd()
+        was_present = cwd in sys.path
+        if was_present:
+            sys.path.remove(cwd)
+        try:
+            BottleSuite(gen_res=True, gen_db=False)
+            self.assertNotIn(cwd, sys.path)
+            self.assertNotIn("resources", sys.modules)
+            self.assertFalse(any(n.startswith("resources.") for n in sys.modules))
+        finally:
+            if was_present:
+                sys.path.insert(0, cwd)
+
+    def test_setupRest_genTrue_leavesPreexistingSysPathEntry(self):
+        cwd = os.getcwd()
+        was_present = cwd in sys.path
+        if not was_present:
+            sys.path.insert(0, cwd)
+        try:
+            BottleSuite(gen_res=True, gen_db=False)
+            self.assertIn(cwd, sys.path)
+            self.assertNotIn("resources", sys.modules)
+        finally:
+            if not was_present:
+                sys.path.remove(cwd)
 
     # --- setRoles: preexisting bool roles + toml roles -> TypeError is
     # swallowed by setRoles' own broad except, not raised (characterized).

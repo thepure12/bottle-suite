@@ -6,8 +6,9 @@ from .plugins import API, Resource, JWTPlugin, authFunc, sqlitePlugin, sqlPlugin
 from typing import Union
 import toml
 import os
+import sys
 import inspect
-from importlib import util
+import importlib
 from . import resource_factory, reload, resource_scaffold, openapi
 from .resources import AllResources, DataTypes, Config, PythonResources
 from .dashboard.resources.token import DashboardToken
@@ -155,8 +156,7 @@ class BottleSuite(Bottle):
             self.rest = API()
             self.install(self.rest)
             if gen and os.path.exists(os.getcwd() + "/resources"):
-                for py_file in os.listdir(os.getcwd() + "/resources"):
-                    self.importResourcesFromFile(py_file)
+                self.importResourcesDir()
             self.rest.addResource(
                 AllResources(self), "/_resources", "/_resources/<resource>"
             )
@@ -235,15 +235,34 @@ class BottleSuite(Bottle):
             func = authFunc
         self.jwt.token_paths[token_path] = func
 
+    def importResourcesDir(self):
+        # Load resources/ as a real (namespace) package rather than
+        # exec'ing each file in isolation, so resource files can use
+        # relative imports (from . import helper) or import other modules
+        # elsewhere in the project. The project root and cached
+        # resources/resources.* modules are cleaned up afterwards so that
+        # repeated BottleSuite() instantiations against different projects
+        # (tests, the CLI's retry loop) don't leak stale modules or a
+        # stale sys.path entry between runs.
+        project_root = os.getcwd()
+        path_added = project_root not in sys.path
+        if path_added:
+            sys.path.insert(0, project_root)
+        try:
+            for py_file in os.listdir(os.path.join(project_root, "resources")):
+                self.importResourcesFromFile(py_file)
+        finally:
+            for name in list(sys.modules):
+                if name == "resources" or name.startswith("resources."):
+                    del sys.modules[name]
+            if path_added:
+                sys.path.remove(project_root)
+
     def importResourcesFromFile(self, py_file):
         module_name = py_file[:-3]
         if module_name == "__init__" or py_file[-3:] != ".py":
             return
-        spec = util.spec_from_file_location(
-            module_name, f"{os.getcwd()}/resources/{py_file}"
-        )
-        module = util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = importlib.import_module(f"resources.{module_name}")
         classes = inspect.getmembers(module, inspect.isclass)
         for cls in classes:
             if Resource not in cls[1].mro(): # Is class a Bottle-Rest Resource
