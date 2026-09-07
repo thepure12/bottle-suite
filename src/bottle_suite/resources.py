@@ -1,4 +1,3 @@
-from __future__ import annotations
 from .plugins import Resource
 import sqlite3
 import pymysql
@@ -75,7 +74,7 @@ def _buildRoles(config: dict) -> list:
 
 
 class Config(Resource):
-    def __init__(self, app: BottleSuite) -> None:
+    def __init__(self, app: "BottleSuite") -> None:
         super().__init__()
         self.app = app
 
@@ -97,7 +96,7 @@ class Config(Resource):
             return {"message": str(e)}
 
 class DataTypes(Resource):
-    def __init__(self, app: BottleSuite) -> None:
+    def __init__(self, app: "BottleSuite") -> None:
         super().__init__()
         self.app = app
 
@@ -115,7 +114,7 @@ class AllResources(Resource):
 
     
 
-    def __init__(self, app: BottleSuite) -> None:
+    def __init__(self, app: "BottleSuite") -> None:
         super().__init__()
         self.app = app
 
@@ -218,7 +217,7 @@ class AllResources(Resource):
 
 
 class PythonResources(Resource):
-    def __init__(self, app: BottleSuite) -> None:
+    def __init__(self, app: "BottleSuite") -> None:
         super().__init__()
         self.app = app
 

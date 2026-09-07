@@ -8,9 +8,16 @@ version = "0.0.17"
 authors = [{ name = "TJ Renninger", email = "renninger12@gmail.com" }]
 description = "bottle.py suite with CORS, SQL, REST, and JWT"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.6"
 classifiers = [
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.6",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
@@ -19,6 +26,7 @@ dependencies = [
   "PyJWT",
   "pymysql",
   "toml >= 0.10.2",
+  "importlib_metadata; python_version < '3.8'",
 ]
 
 [project.scripts]

@@ -1,10 +1,12 @@
 """Builds an OpenAPI 3.0 spec by walking the routes/resources BottleSuite has
 already registered at runtime -- no separate spec is maintained by hand, so
 the documented API surface can never drift from what is actually running."""
-from __future__ import annotations
 import re
 import inspect
-from importlib.metadata import version as _pkg_version, PackageNotFoundError
+try:
+    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+except ImportError:  # pragma: no cover -- Python <3.8 fallback
+    from importlib_metadata import version as _pkg_version, PackageNotFoundError
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover -- never True at runtime
