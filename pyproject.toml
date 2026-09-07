@@ -36,6 +36,7 @@ test = [
 branch = true
 include = [
   "*/bottle_suite/bottle_suite.py",
+  "*/bottle_suite/wsgi.py",
   "*/bottle_suite/resource_factory.py",
   "*/bottle_suite/resource_scaffold.py",
   "*/bottle_suite/resources.py",

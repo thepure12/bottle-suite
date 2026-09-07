@@ -54,6 +54,13 @@ def main():
         default="localhost",
     )
     parser.add_argument(
+        "--dir",
+        type=str,
+        help="Change to this directory before starting, so bottle_suite.toml and resources/ are resolved relative to it",
+        dest="dir",
+        metavar="PATH",
+    )
+    parser.add_argument(
         "--jwt",
         nargs="?",
         type=str,
@@ -94,6 +101,11 @@ def main():
         action="store_true",
     )
     args = parser.parse_args()
+
+    if args.dir:
+        if not os.path.isdir(args.dir):
+            parser.error(f"--dir: no such directory: {args.dir}")
+        os.chdir(args.dir)
 
     kwargs = {
         "cors": args.cors,
