@@ -29,6 +29,7 @@ class PatchData(Enum):
 def createResource(name, fields, sql=False):
     class ChildResource(Resource):
         key = next((f["name"] for f in fields if f["key"] == 1), None)
+        field_names = {f["name"] for f in fields}
         bind_char = "%s" if sql else "?"
         table = name
         _name = "".join([x.capitalize() for x in re.split(", |_|-|!", name)])
@@ -96,6 +97,13 @@ def createResource(name, fields, sql=False):
                 bindings += (key,)
                 sql += f" WHERE {self.key}={self.bind_char}"
             elif self.params:
+                # self.params is request.params -- arbitrary query-string
+                # keys. Only bind the values; validate the keys against the
+                # table's real columns before they're concatenated into SQL.
+                unknown = [k for k in self.params if k not in self.field_names]
+                if unknown:
+                    response.status = 400
+                    return {"message": f"Unknown filter field(s): {', '.join(unknown)}"}
                 bindings = tuple(f"%{v}%" for v in self.params.values())
                 filters = " AND ".join(
                     [f"{k} LIKE {self.bind_char}" for k in self.params.keys()]
@@ -104,7 +112,7 @@ def createResource(name, fields, sql=False):
             query = db.execute(sql, bindings)
             try:
                 rows = query.fetchone() if key else query.fetchall()
-            except:
+            except AttributeError:
                 rows = db.fetchone() if key else db.fetchall()
             if rows or not key:
                 if isinstance(rows, tuple):
@@ -120,30 +128,45 @@ def createResource(name, fields, sql=False):
                 response.status = 404
                 return {"message": "Resource not found"}
 
+        @staticmethod
+        def _integrityErrorMessage(e):
+            if isinstance(e, SqlIntegrityError):
+                return str(e)
+            parts = str(e).split(".")
+            return f"{parts[1]} must be unique" if len(parts) > 1 else str(e)
+
+        def _runMutation(self, action):
+            # Shared try/except shape for _doPost/_doPut/_doPatch/delete: a
+            # unique-constraint violation is always a clean 422 (not just on
+            # create), anything else is a 500.
+            try:
+                return action()
+            except (SqlIntegrityError, SqliteIntegrityError) as e:
+                response.status = 422
+                return {"message": self._integrityErrorMessage(e)}
+            except Exception as e:
+                response.status = 500
+                return {"message": f"{type(e)} {e}"}
+
         def _doPost(self, db, **kwargs):
             if self.key in kwargs and not kwargs[self.key]:
                 kwargs.pop(self.key)
             bindings = tuple(kwargs.values())
             sql = f"""INSERT INTO {self.table} ({','.join(kwargs.keys())})
                         VALUES ({','.join([self.bind_char for x in range(len(bindings))])})"""
-            try:
+
+            def _create():
                 executed = db.execute(sql, bindings)
-            except SqlIntegrityError as e:
-                response.status = 422
-                return {"message": str(e)}
-            except SqliteIntegrityError as e:
-                response.status = 422
-                parts = str(e).split(".")
-                message = f"{parts[1]} must be unique" if len(parts) > 1 else str(e)
-                return {"message": message}
-            # Get row ID of created resource
-            try:
-                last_row_id = executed.lastrowid
-            except AttributeError:
-                last_row_id = db.lastrowid
-            created = self.get(db, last_row_id)
-            response.status = 201
-            return created
+                # Get row ID of created resource
+                try:
+                    last_row_id = executed.lastrowid
+                except AttributeError:
+                    last_row_id = db.lastrowid
+                created = self.get(db, last_row_id)
+                response.status = 201
+                return created
+
+            return self._runMutation(_create)
 
         def _doPut(self, db, **kwargs):
             res_id = kwargs.pop(self.key)
@@ -152,14 +175,14 @@ def createResource(name, fields, sql=False):
                       SET {','.join([f'{k}={self.bind_char}' for k in kwargs])}
                       WHERE {self.key}={self.bind_char}"""
             bindings += (res_id,)
-            try:
+
+            def _update():
                 db.execute(sql, bindings)
                 updated = self.get(db, res_id)
                 response.status = 200
                 return updated
-            except Exception as e:
-                response.status = 500
-                return {"message": f"{type(e)} {e}"}
+
+            return self._runMutation(_update)
 
         def _doPatch(self, db, **kwargs):
             res_id = kwargs.pop(self.key)
@@ -168,24 +191,24 @@ def createResource(name, fields, sql=False):
                       SET {','.join([f'{k}={self.bind_char}' for k, v in kwargs.items() if v != PatchData.UNCHANGED])}
                       WHERE {self.key}={self.bind_char}"""
             bindings += (res_id,)
-            try:
+
+            def _update():
                 db.execute(sql, bindings)
                 updated = self.get(db, res_id)
                 response.status = 200
                 return updated
-            except Exception as e:
-                response.status = 500
-                return {"message": f"{type(e)} {e}"}
+
+            return self._runMutation(_update)
 
         def delete(self, db, key):
             sql = f"DELETE FROM {self.table} WHERE {self.key}={self.bind_char}"
-            try:
+
+            def _delete():
                 db.execute(sql, (key,))
                 response.status = 200
                 return {"message": f"{self.key} {key} deleted"}
-            except Exception as e:
-                response.status = 500
-                return {"message": f"{type(e)} {e}"}
+
+            return self._runMutation(_delete)
 
         @classmethod
         def createFunction(cls, _name: str, *args, key_param: str = None, **kwargs):

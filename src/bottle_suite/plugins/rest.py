@@ -1,7 +1,7 @@
 # Vendored from bottle-rest (https://github.com/thepure12/bottle-rest), MIT License.
 from enum import Enum
 from typing import Type, Union
-from bottle import PluginError, Route, Bottle, abort, request, response
+from bottle import PluginError, Route, Bottle, request, response
 from inspect import signature
 
 
@@ -88,7 +88,7 @@ class API(object):
                         and (val.default == val.empty)
                     ):
                         response.status = 400
-                        return {name: f"This feild is is required"}
+                        return {name: "This field is required"}
                 return callback(**data, **kwargs)
             return callback()
 
@@ -97,7 +97,7 @@ class API(object):
     def addResource(self, resource: Union[Type[Resource], Resource], *rules):
         for rule in rules:
             if self.debug:
-                (f"Adding rescource '{rule}'")
+                print(f"Adding resource '{rule}'")
             if callable(resource):
                 resource = resource()
             # setattr(self, resource_cls.__name__, resource) Not sure if this is still needed

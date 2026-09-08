@@ -44,8 +44,7 @@ class TestAPIApply(unittest.TestCase):
         self.app.route("/thing", "POST", callback)
         resp = self.testapp.post("/thing", expect_errors=True)
         self.assertEqual(resp.status_code, 400)
-        # Exact current (typo'd) message -- intentionally left as-is, out of scope to fix.
-        self.assertEqual(resp.json, {"name": "This feild is is required"})
+        self.assertEqual(resp.json, {"name": "This field is required"})
 
     def test_dataKwargsKeyCollision_500(self):
         def callback(id, name="x"):

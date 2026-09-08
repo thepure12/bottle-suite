@@ -3,7 +3,7 @@ import sqlite3
 import pymysql
 import toml
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 from bottle import response
 
 if TYPE_CHECKING:  # pragma: no cover -- never True at runtime
@@ -64,6 +64,33 @@ MYSQL_TYPES = [
     "JSON",
     "ENUM",
 ]
+
+def _normalizeMethod(value: dict) -> Union[str, list]:
+    if "methods" in value:
+        return [m.lower() for m in value["methods"]]
+    return value["method"].lower()
+
+
+def _applyRolesOrPaths(app: "BottleSuite", resource: str, attr_name: str, value: dict) -> bool:
+    """Shared roles/paths/remove_path patch dispatch used by both
+    AllResources.patch and PythonResources.patch. Returns False (handling
+    nothing) when attr_name is something only the caller understands (e.g.
+    AllResources' own "fields" branch)."""
+    if attr_name == "roles":
+        method = _normalizeMethod(value)
+        roles = value["roles"]
+        app.updateRoles(resource, method, roles)
+    elif attr_name == "paths":
+        index = value["index"]
+        path = value["path"]
+        app.updatePaths(resource, index, path)
+    elif attr_name == "remove_path":
+        index = value["index"]
+        app.removePath(resource, index)
+    else:
+        return False
+    return True
+
 
 def _buildRoles(config: dict) -> list:
     roles = {k: v for k, v in config.get("roles", {}).items()}
@@ -196,23 +223,9 @@ class AllResources(Resource):
     def patch(self, resource, attr_name, value):
         attr_name = attr_name.lower()
         try:
-            if attr_name == "roles":
-                method = (
-                    [m.lower() for m in value["methods"]]
-                    if "methods" in value
-                    else value["method"].lower()
-                )
-                roles = value["roles"]
-                self.app.updateRoles(resource, method, roles)
-            elif attr_name == "paths":
-                index = value["index"]
-                path = value["path"]
-                self.app.updatePaths(resource, index, path)
-            elif attr_name == "remove_path":
-                index = value["index"]
-                self.app.removePath(resource, index)
-            elif attr_name == "fields":
-                self.app.alterDBTable(resource, value)
+            if not _applyRolesOrPaths(self.app, resource, attr_name, value):
+                if attr_name == "fields":
+                    self.app.alterDBTable(resource, value)
         except KeyError as e:
             response.status = 400
             return {"message": f"Missing expected key: {e}"}
@@ -273,21 +286,7 @@ class PythonResources(Resource):
     def patch(self, resource, attr_name, value):
         attr_name = attr_name.lower()
         try:
-            if attr_name == "roles":
-                method = (
-                    [m.lower() for m in value["methods"]]
-                    if "methods" in value
-                    else value["method"].lower()
-                )
-                roles = value["roles"]
-                self.app.updateRoles(resource, method, roles)
-            elif attr_name == "paths":
-                index = value["index"]
-                path = value["path"]
-                self.app.updatePaths(resource, index, path)
-            elif attr_name == "remove_path":
-                index = value["index"]
-                self.app.removePath(resource, index)
+            _applyRolesOrPaths(self.app, resource, attr_name, value)
         except KeyError as e:
             response.status = 400
             return {"message": f"Missing expected key: {e}"}
@@ -328,13 +327,12 @@ class ResourceRoles(Resource):
         try:
             normalized = []
             for u in updates:
-                method = (
-                    [m.lower() for m in u["methods"]]
-                    if "methods" in u
-                    else u["method"].lower()
-                )
                 normalized.append(
-                    {"resource": u["resource"], "method": method, "roles": u["roles"]}
+                    {
+                        "resource": u["resource"],
+                        "method": _normalizeMethod(u),
+                        "roles": u["roles"],
+                    }
                 )
             self.app.updateRolesBulk(normalized)
         except KeyError as e:

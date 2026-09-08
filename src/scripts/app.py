@@ -1,5 +1,4 @@
-from bottle_suite import BottleSuite, bottle
-import socket
+from bottle_suite import BottleSuite
 import argparse
 import time
 from pathlib import Path
@@ -13,28 +12,6 @@ MIN_PORT = 8000
 MAX_PORT = 8999
 KEY_LEN = 32
 TMP_DB = f"{Path(__file__).parent.resolve()}/tmp.db"
-dist = f"{Path(__file__).parent.parent.resolve()}/bottle_suite/dashboard/dist"
-
-
-def checkPort(host, port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        try:
-            sock.bind((host, port))
-            sock.close()
-            return True
-        except:
-            sock.close()
-            return False
-
-
-def dashboard(path=""):
-    # print(dist)
-    return bottle.static_file("index.html", dist)
-
-
-def nuxt(filename):
-    # print(filename)
-    return bottle.static_file(filename, f"{dist}/_nuxt")
 
 
 def main():

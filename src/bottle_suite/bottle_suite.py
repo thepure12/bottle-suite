@@ -6,12 +6,21 @@ from .plugins import API, Resource, JWTPlugin, authFunc, sqlitePlugin, sqlPlugin
 from typing import Union
 import toml
 import os
+import re
 import sys
 import secrets
 import inspect
 import importlib
 from . import resource_factory, reload, resource_scaffold, openapi
-from .resources import AllResources, DataTypes, Config, PythonResources, ResourceRoles
+from .resources import (
+    AllResources,
+    DataTypes,
+    Config,
+    PythonResources,
+    ResourceRoles,
+    SQLITE_TYPES,
+    MYSQL_TYPES,
+)
 from .dashboard.resources.token import DashboardToken
 import pymysql
 import pymysql.cursors
@@ -23,6 +32,14 @@ from pathlib import Path
 
 
 DIST = f"{Path(__file__).parent.parent.resolve()}/bottle_suite/dashboard/dist"
+
+# Column DEFAULT values are concatenated directly into DDL (neither sqlite3
+# nor pymysql support bind parameters inside ALTER TABLE), so only allow a
+# safe literal shape: NULL/CURRENT_TIMESTAMP, a bare number, or a
+# single-quoted string with escaped/absent embedded quotes.
+_SAFE_DEFAULT_RE = re.compile(
+    r"(?i)^(null|current_timestamp)$|^-?\d+(\.\d+)?$|^'(?:[^'\\]|'')*'$"
+)
 
 
 def dashboard(path=""):
@@ -50,9 +67,9 @@ class JSONEncoder(json.JSONEncoder):
 class BottleSuite(Bottle):
     def __init__(
         self,
-        cors: bool = True,
+        cors: Union[bool, dict] = True,
         rest: bool = True,
-        jwt: Union[bool, str, dict] = "default",
+        jwt: Union[bool, str, dict] = True,
         sqlite: Union[bool, str, dict] = False,
         sql: Union[bool, str, dict] = False,
         gen_db: bool = True,
@@ -77,7 +94,14 @@ class BottleSuite(Bottle):
         self.run_args = run_args
         try:
             self.cfg = toml.load(cfg_file)
-        except:
+        except (OSError, TypeError):
+            # No usable file at cfg_file (missing, a directory, cfg_file=None,
+            # ...) -- fall back to constructor args taking full effect.
+            self.cfg = {}
+        except toml.TomlDecodeError as e:
+            # The file exists but isn't valid TOML -- this one's worth a
+            # loud warning rather than silently discarding the user's config.
+            print(f"Warning: failed to parse {cfg_file}: {e}")
             self.cfg = {}
         dashboard = self.cfg.get("dashboard", dashboard)
         if "cors" in self.cfg:
@@ -192,7 +216,8 @@ class BottleSuite(Bottle):
 
     def setupCors(self, cors):
         if cors:
-            self.cors = CorsPlugin()
+            origins = cors.get("origins") if isinstance(cors, dict) else None
+            self.cors = CorsPlugin(origins=origins)
             self.install(self.cors)
         else:
             self.cors = None
@@ -203,19 +228,49 @@ class BottleSuite(Bottle):
             self.install(self.rest)
             if gen and os.path.exists(os.getcwd() + "/resources"):
                 self.importResourcesDir()
-            self.rest.addResource(
-                AllResources(self), "/_resources", "/_resources/<resource>"
-            )
-            self.rest.addResource(DataTypes(self), "/_datatypes")
-            self.rest.addResource(Config(self), "/bottle_suite_cfg")
-            self.rest.addResource(
-                PythonResources(self), "/_python_resources", "/_python_resources/<resource>"
-            )
-            self.rest.addResource(ResourceRoles(self), "/_roles")
+            for name, resource, paths in (
+                ("_resources", AllResources(self), ("/_resources", "/_resources/<resource>")),
+                ("_datatypes", DataTypes(self), ("/_datatypes",)),
+                ("bottle_suite_cfg", Config(self), ("/bottle_suite_cfg",)),
+                (
+                    "_python_resources",
+                    PythonResources(self),
+                    ("/_python_resources", "/_python_resources/<resource>"),
+                ),
+                ("_roles", ResourceRoles(self), ("/_roles",)),
+            ):
+                self._protectBuiltinResource(resource, name)
+                self.rest.addResource(resource, *paths)
             if getattr(self, "dashboard_token", None):
                 self.rest.addResource(self.dashboard_token, "/dashboard/setup")
         else:
             self.rest = None
+
+    def _protectBuiltinResource(self, resource, name):
+        # These meta/admin resources (schema mutation, full config dump/
+        # replace, role editing) must never be reachable without a valid
+        # token by default -- unlike hand-authored or DB-generated
+        # resources, nothing else gates access to them. Unlike those,
+        # AllResources/DataTypes/Config/PythonResources/ResourceRoles are
+        # singleton classes imported once at module load rather than
+        # recreated per BottleSuite() instantiation, so their route config
+        # (stored as class attributes by Resource.setRouteConfig) is reset
+        # to a clean slate first -- otherwise a later instantiation's toml
+        # role config could be silently blocked by a bool leftover from an
+        # earlier instantiation in the same process (tests, the CLI retry
+        # loop). setRoles() is then free to apply any
+        # resources.<name>.roles override cleanly, and only methods it left
+        # untouched fall back to the "any authenticated user" default.
+        # OPTIONS is left alone so CORS preflight still passes through.
+        for meth in resource.Methods:
+            resource.setRouteConfig(meth, {})
+        self.setRoles(resource, name)
+        for meth in resource.Methods:
+            if meth == resource.Methods.OPTIONS:
+                continue
+            route_cfg = resource.getRouteConfig(meth)
+            route_cfg.setdefault("roles", True)
+            resource.setRouteConfig(meth, route_cfg)
 
     def setupOpenApi(self, use_openapi: Union[bool, dict]):
         if isinstance(use_openapi, dict):
@@ -233,9 +288,24 @@ class BottleSuite(Bottle):
     def setupJwt(self, jwt):
         cfg = {}
         if jwt:
+            if jwt is True:
+                # No explicit key given (constructor default / bare `jwt = true`
+                # in bottle_suite.toml) -- generate a random one rather than
+                # falling back to a hardcoded, publicly-known secret. This key
+                # is process-local and not persisted: it keeps every
+                # unconfigured deployment from sharing the same guessable
+                # secret, at the cost of invalidating outstanding tokens on
+                # restart. Set `jwt` explicitly for a stable key.
+                jwt = secrets.token_urlsafe(32)
+                print(
+                    "No JWT key configured -- using a randomly generated key "
+                    "for this run. Tokens issued now will stop validating "
+                    f"after a restart; set `jwt` explicitly (or in "
+                    f"{self.cfg_file}) for a stable key."
+                )
             if type(jwt) == str:
                 cfg["jwt_key"] = jwt
-            elif type(jwt) == dict:
+            else:
                 cfg = jwt
             self.jwt = JWTPlugin(**cfg)
             self.install(self.jwt)
@@ -392,7 +462,7 @@ class BottleSuite(Bottle):
             # Generic nested-ref route: resource_factory's get() resolves
             # the actual FK relationship (if any) at request time via
             # getRefs, so this single rule covers every table without
-            # needing per-relationship routes from getRefEndpoints.
+            # needing a per-relationship route generated ahead of time.
             if f"/<ref_table>/<ref_id>/{table}" not in rules:
                 endpoints.append(f"/<ref_table>/<ref_id>/{table}")
             try:
@@ -404,50 +474,35 @@ class BottleSuite(Bottle):
             if endpoints:
                 self.rest.addResource(resource, endpoints)
 
-    def getRefEndpoints(self, table):
-        sql = resource_factory.FOREIGN_KEY_SQL + f"'{table}'"
-        db = self.getDBCursor()
-        db.execute(sql)
-        refs = db.fetchall()
-        endpoints = []
-        for ref in refs:
-            if ref["referenced_table_name"] != ref["table_name"]:
-                e = f"/{ref['referenced_table_name']}/<{ref['referenced_column_name']}>/{table}"
-                endpoints.append(e)
-        return endpoints
-
-    def getDBCursor(self) -> Union[pymysql.cursors.Cursor, sqlite3.Cursor]:
+    def _connect(self, dictrows=True):
+        # Shared sqlite3/pymysql connection construction -- was duplicated
+        # (with the same dict-row-factory/DictCursor setup) across
+        # getDBCursor, getDBTables, dropTable, and alterDBTable.
         if self.sqlite:
+            # Every current caller wants dict rows from sqlite -- dictrows
+            # only ever matters for the pymysql side below.
             conn = sqlite3.connect(self.sqlite.sql_config["database"])
             conn.row_factory = lambda cursor, row: {
                 col[0]: row[idx] for idx, col in enumerate(cursor.description)
             }
         elif self.sql:
-            conn = pymysql.connect(
+            cfg = dict(
                 host=self.sql.sql_config["host"],
                 user=self.sql.sql_config["user"],
                 password=self.sql.sql_config["password"],
                 database=self.sql.sql_config["database"],
-                cursorclass=pymysql.cursors.DictCursor,
             )
+            if dictrows:
+                cfg["cursorclass"] = pymysql.cursors.DictCursor
+            conn = pymysql.connect(**cfg)
         else:
             raise Exception("No database configured (sql or sqlite)")
+        return conn
+
+    def getDBCursor(self) -> Union[pymysql.cursors.Cursor, sqlite3.Cursor]:
+        conn = self._connect()
         db = conn.cursor()
         return db
-
-    def getSqlTable(self, db, table) -> list:
-        db.execute(f"DESCRIBE {table}")
-        return [
-            {
-                "field": r[0],
-                "type": r[1],
-                "null": r[2],
-                "key": r[3],
-                "default": r[4],
-                "extra": r[5],
-            }
-            for r in db.fetchall()
-        ]
 
     def getSqliteTable(self, db, table):
         return db.execute(f"PRAGMA table_info('{table['name']}')").fetchall()
@@ -476,21 +531,7 @@ class BottleSuite(Bottle):
         ]
 
     def getDBTables(self) -> dict:
-        if self.sqlite:
-            conn = sqlite3.connect(self.sqlite.sql_config["database"])
-            conn.row_factory = lambda cursor, row: {
-                col[0]: row[idx] for idx, col in enumerate(cursor.description)
-            }
-        elif self.sql:
-            conn = pymysql.connect(
-                host=self.sql.sql_config["host"],
-                user=self.sql.sql_config["user"],
-                password=self.sql.sql_config["password"],
-                database=self.sql.sql_config["database"],
-                cursorclass=pymysql.cursors.DictCursor,
-            )
-        else:
-            raise Exception("No database configured (sql or sqlite)")
+        conn = self._connect()
         db = conn.cursor()
         if isinstance(db, sqlite3.Cursor):
             tables_sql = "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%PRIMARY%'"
@@ -513,7 +554,7 @@ class BottleSuite(Bottle):
         if self.sqlite:
             print(f"Creating table {name}")
             with sqlite3.connect(self.sqlite.sql_config["database"]) as db:
-                created = db.execute(sql)
+                db.execute(sql)
                 db.commit()
         self.reloadServer()
         return name
@@ -528,12 +569,7 @@ class BottleSuite(Bottle):
                 db.commit()
         else:
             # getDBTables() above already guarantees sqlite or sql is set.
-            conn = pymysql.connect(
-                host=self.sql.sql_config["host"],
-                user=self.sql.sql_config["user"],
-                password=self.sql.sql_config["password"],
-                database=self.sql.sql_config["database"],
-            )
+            conn = self._connect(dictrows=False)
             try:
                 cur = conn.cursor()
                 cur.execute(f"DROP TABLE {name}")
@@ -545,8 +581,26 @@ class BottleSuite(Bottle):
         self.reloadServer()
         return name
 
+    def _validateIdentifier(self, value, what="identifier"):
+        if not value or not resource_scaffold.NAME_RE.match(value):
+            raise ValueError(f"Invalid {what}: {value}")
+
+    def _validateDatatype(self, datatype):
+        if not datatype:
+            return
+        allowed = SQLITE_TYPES if self.sqlite else MYSQL_TYPES
+        if datatype.strip().upper() not in allowed:
+            raise ValueError(f"Invalid column type: {datatype}")
+
+    def _validateDefaultValue(self, dflt):
+        if dflt is None or dflt == "":
+            return
+        if not _SAFE_DEFAULT_RE.match(str(dflt)):
+            raise ValueError(f"Invalid default value: {dflt}")
+
     def alterDBTable(self, table, field_attrs):
         print(f"Altering {table} with {field_attrs}")
+        self._validateIdentifier(table, "table name")
         if self.sqlite:
             with sqlite3.connect(self.sqlite.sql_config["database"]) as db:
                 fields = self.getSqliteTable(db, {"name": table})
@@ -570,6 +624,9 @@ class BottleSuite(Bottle):
                             f"SQLite {sqlite3.sqlite_version} does not support "
                             "DROP COLUMN (requires >= 3.35.0)"
                         )
+                    # name comes from the DB's own introspected schema, not
+                    # request input, but validate anyway for defense in depth.
+                    self._validateIdentifier(name, "column name")
                     db.execute(f"ALTER TABLE {table} DROP COLUMN {name}")
                     db.commit()
                     self.reloadServer()
@@ -585,12 +642,16 @@ class BottleSuite(Bottle):
                         field_attrs["pk"],
                     ),
                 )
-                print(name)
                 if cid or cid == 0:
+                    self._validateIdentifier(name, "column name")
+                    self._validateIdentifier(field_attrs["name"], "column name")
                     sql = f"""ALTER TABLE {table}
                               RENAME COLUMN {name} TO {field_attrs['name']}"""
                     db.execute(sql)
                 elif name:
+                    self._validateIdentifier(name, "column name")
+                    self._validateDatatype(datatype)
+                    self._validateDefaultValue(dflt)
                     datatype = datatype or "TEXT"
                     notnull = "NOT NULL" if notnull else ""
                     if notnull and not dflt:
@@ -601,32 +662,69 @@ class BottleSuite(Bottle):
                               ADD COLUMN {name} {datatype} {dflt} {notnull} {pk}"""
                     db.execute(sql)
                 db.commit()
-        elif self.sql and field_attrs.get("drop"):
-            conn = pymysql.connect(
-                host=self.sql.sql_config["host"],
-                user=self.sql.sql_config["user"],
-                password=self.sql.sql_config["password"],
-                database=self.sql.sql_config["database"],
-            )
+        elif self.sql:
+            conn = self._connect(dictrows=False)
             try:
                 cur = conn.cursor()
                 cur.execute(f"DESCRIBE {table}")
                 fields = cur.fetchall()
-                match = next(
-                    (f for f in fields if f[0] == field_attrs["name"]), None
-                )
-                if match is None:
-                    raise ValueError(
-                        f"No such column '{field_attrs['name']}' on {table}"
+                if field_attrs.get("drop"):
+                    match = next(
+                        (f for f in fields if f[0] == field_attrs["name"]), None
                     )
-                if match[3] == "PRI":
-                    raise ValueError(f"Cannot drop primary key column '{match[0]}'")
-                if len(fields) <= 1:
-                    raise ValueError(
-                        f"Cannot drop the only remaining column on '{table}'"
+                    if match is None:
+                        raise ValueError(
+                            f"No such column '{field_attrs['name']}' on {table}"
+                        )
+                    if match[3] == "PRI":
+                        raise ValueError(
+                            f"Cannot drop primary key column '{match[0]}'"
+                        )
+                    if len(fields) <= 1:
+                        raise ValueError(
+                            f"Cannot drop the only remaining column on '{table}'"
+                        )
+                    self._validateIdentifier(match[0], "column name")
+                    cur.execute(f"ALTER TABLE {table} DROP COLUMN {match[0]}")
+                    conn.commit()
+                else:
+                    name = field_attrs.get("name")
+                    # MySQL's DESCRIBE has no sqlite-style numeric "cid" --
+                    # reuse the same key to carry the existing column's
+                    # current name instead, so a truthy `cid` still means
+                    # "rename this column" and a falsy one means "add".
+                    old_name = field_attrs.get("cid")
+                    match = (
+                        next((f for f in fields if f[0] == old_name), None)
+                        if old_name
+                        else None
                     )
-                cur.execute(f"ALTER TABLE {table} DROP COLUMN {match[0]}")
-                conn.commit()
+                    if match:
+                        self._validateIdentifier(old_name, "column name")
+                        self._validateIdentifier(name, "column name")
+                        # RENAME COLUMN requires MySQL >= 8.0 / MariaDB >= 10.5.2.
+                        cur.execute(
+                            f"ALTER TABLE {table} RENAME COLUMN {old_name} TO {name}"
+                        )
+                    elif name:
+                        datatype = field_attrs.get("type")
+                        dflt = field_attrs.get("dflt_value")
+                        notnull = field_attrs.get("notnull")
+                        pk = field_attrs.get("pk")
+                        self._validateIdentifier(name, "column name")
+                        self._validateDatatype(datatype)
+                        self._validateDefaultValue(dflt)
+                        datatype = datatype or "TEXT"
+                        notnull_sql = "NOT NULL" if notnull else ""
+                        if notnull and not dflt:
+                            dflt = "''"
+                        dflt_sql = f"DEFAULT {dflt}" if dflt else ""
+                        pk_sql = "PRIMARY KEY" if pk == 1 else ""
+                        cur.execute(
+                            f"ALTER TABLE {table} ADD COLUMN {name} {datatype} "
+                            f"{dflt_sql} {notnull_sql} {pk_sql}"
+                        )
+                    conn.commit()
             finally:
                 conn.close()
         self.reloadServer()
@@ -644,6 +742,7 @@ class BottleSuite(Bottle):
         return name
 
     def deleteResourceFile(self, name):
+        self._validateIdentifier(name, "resource name")
         resource_scaffold.deleteResourceFile(
             os.path.join(os.getcwd(), "resources"), name
         )

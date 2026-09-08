@@ -49,5 +49,36 @@ class TestCors(unittest.TestCase):
         self.assertEqual(self.calls, [True])
 
 
+class TestCorsOriginAllowlist(unittest.TestCase):
+    def setUp(self):
+        self.bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG,
+            cors={"origins": ["https://allowed.example"]},
+            rest=False,
+            jwt=False,
+            sqlite=False,
+            sql=False,
+            gen_res=False,
+            gen_db=False,
+        )
+        self.bs.route("/thing", ["GET"], lambda: {"ok": True})
+        self.app = webtest.TestApp(self.bs)
+
+    def test_allowedOrigin_echoed(self):
+        resp = self.app.get(
+            "/thing", headers={"Origin": "https://allowed.example"}
+        )
+        self.assertEqual(
+            resp.headers.get("Access-Control-Allow-Origin"),
+            "https://allowed.example",
+        )
+
+    def test_disallowedOrigin_headerOmitted(self):
+        resp = self.app.get(
+            "/thing", headers={"Origin": "https://evil.example"}
+        )
+        self.assertIsNone(resp.headers.get("Access-Control-Allow-Origin"))
+
+
 if __name__ == "__main__":
     unittest.main()

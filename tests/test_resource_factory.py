@@ -62,6 +62,18 @@ class TestResourceFactorySqlite(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json["animals"], [])
 
+    def test_get_unknownFilterField_400(self):
+        # Query-string keys are validated against real columns before being
+        # concatenated into the WHERE/LIKE clause -- an unrecognized key
+        # (e.g. crafted to inject SQL) is rejected rather than executed.
+        resp = self.app.get(
+            "/animals",
+            {"name); DROP TABLE animals;--": "x"},
+            expect_errors=True,
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Unknown filter field", resp.json["message"])
+
     # --- getRefs: default levels=1 does not nest ---
     def test_getRefs_levels1_noNesting(self):
         resp = self.app.get("/predations/1")

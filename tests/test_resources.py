@@ -7,6 +7,8 @@ import sqlite3
 import tempfile
 import toml
 import webtest
+import jwt as pyjwt
+from datetime import datetime, timedelta
 from bottle_suite import BottleSuite
 from bottle_suite.resources import (
     Config,
@@ -19,6 +21,16 @@ from bottle_suite.plugins import rest as bottle_rest
 import db_fixtures
 
 NONEXISTENT_CFG = "no_such_bottle_suite_cfg.toml"
+# Matches the committed tests/bottle_suite.toml's [jwt] jwt_key -- any
+# BottleSuite built from a copy of that file (db_fixtures.temp_cfg_copy())
+# has JWT enabled with this key, even when jwt=False is also passed,
+# since toml values always override constructor args.
+JWT_KEY = "secret"
+
+
+def _valid_token(**extra):
+    payload = {"exp": datetime.utcnow() + timedelta(days=1), **extra}
+    return pyjwt.encode(payload, JWT_KEY, algorithm="HS256")
 
 
 class CustomResource(bottle_rest.Resource):
@@ -46,6 +58,10 @@ class TestConfigResource(unittest.TestCase):
             gen_db=False,
         )
         self.app = webtest.TestApp(self.bs)
+        # jwt=False above is overridden by the copied toml's own [jwt]
+        # section (see JWT_KEY comment) -- Config is now roles-protected
+        # by default, so every request needs a valid bearer token.
+        self.app.authorization = ("Bearer", _valid_token())
 
     def tearDown(self):
         shutil.rmtree(self.cfg_dir)
@@ -67,6 +83,34 @@ class TestConfigResource(unittest.TestCase):
         # CORS intercepts OPTIONS before it reaches the handler over HTTP,
         # so this is exercised as a direct unit call.
         self.assertIsNone(Config(self.bs).options())
+
+    def test_get_noToken_400(self):
+        # Built-in meta-resources default to requiring a valid JWT --
+        # confirms the endpoint is no longer wide open by default.
+        app = webtest.TestApp(self.bs)  # fresh TestApp, no Authorization header
+        resp = app.get("/bottle_suite_cfg", expect_errors=True)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_get_tomlRoleOverride_appliedOnTopOfDefault(self):
+        # resources.<name>.roles in bottle_suite.toml still layers on top of
+        # the built-in "any authenticated user" default -- a token without
+        # the configured role is rejected even though it's otherwise valid.
+        cfg_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, cfg_dir)
+        cfg_path = os.path.join(cfg_dir, "bottle_suite.toml")
+        with open(cfg_path, "w") as f:
+            f.write(
+                '[jwt]\njwt_key = "secret"\n\n'
+                '[resources.bottle_suite_cfg.roles]\nget = ["admin"]\n'
+            )
+        bs = BottleSuite(cfg_file=cfg_path, gen_res=False, gen_db=False)
+        app = webtest.TestApp(bs)
+        app.authorization = ("Bearer", _valid_token())
+        resp = app.get("/bottle_suite_cfg", expect_errors=True)
+        self.assertEqual(resp.status_code, 403)
+        app.authorization = ("Bearer", _valid_token(roles=["admin"]))
+        resp = app.get("/bottle_suite_cfg")
+        self.assertEqual(resp.status_code, 200)
 
     def test_put_malformedToml_400(self):
         resp = self.app.put_json(

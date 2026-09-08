@@ -69,6 +69,18 @@ class TestBottleSuite(unittest.TestCase):
         cfg = toml.load("bottle_suite.toml")
         self.assertEqual(cfg, self.bottle_suite.cfg)
 
+    def test_loadConfig_malformedToml_warnsAndFallsBackToEmpty(self):
+        fd, path = tempfile.mkstemp(suffix=".toml", dir=os.getcwd())
+        os.close(fd)
+        self.addCleanup(os.remove, path)
+        with open(path, "w") as f:
+            f.write("not: valid: toml: [")
+        bs = BottleSuite(
+            cfg_file=path, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        self.assertEqual(bs.cfg, {})
+
     # REST
     def test_initRest(self):
         self.assertIn("AllResources", self.bottle_suite.resource_names)
@@ -181,14 +193,28 @@ class TestBottleSuite(unittest.TestCase):
         )
         self.assertEqual(bs.sqlite.sql_config["database"], tmp_db)
 
-    def test_setupJwt_neitherStrNorDict_stillCallsJWTPluginConstructor(self):
-        # jwt=True (bool) skips both the str and dict branches, so cfg stays
-        # {} -- JWTPlugin's required jwt_key positional arg then crashes.
-        with self.assertRaises(TypeError):
-            BottleSuite(
-                cfg_file=NONEXISTENT_CFG, jwt=True, sqlite=False, sql=False,
-                gen_res=False, gen_db=False,
-            )
+    def test_setupJwt_boolTrue_generatesRandomKey(self):
+        # jwt=True (the constructor default) means "enabled, no explicit key"
+        # -- a random per-process secret is generated instead of falling
+        # back to a hardcoded, guessable one.
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, jwt=True, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        self.assertIsInstance(bs.jwt.jwt_key, str)
+        self.assertNotEqual(bs.jwt.jwt_key, "default")
+        self.assertGreater(len(bs.jwt.jwt_key), 16)
+
+    def test_setupJwt_boolTrue_eachInstantiationGetsDifferentKey(self):
+        bs1 = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, jwt=True, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        bs2 = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, jwt=True, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        self.assertNotEqual(bs1.jwt.jwt_key, bs2.jwt.jwt_key)
 
     def test_setupSqlite_neitherStrNorDict_stillCallsFactory(self):
         # sqlite=True (bool) skips both branches; sqlitePlugin's required
@@ -354,6 +380,49 @@ class TestBottleSuite(unittest.TestCase):
             os.chdir(cwd)
             shutil.rmtree(tmp1)
             shutil.rmtree(tmp2)
+
+    def test_setupAuth_projectRootAlreadyOnSysPath_notRemoved(self):
+        # When project_root is already on sys.path (e.g. left there by
+        # something else), setupAuth must neither re-add nor remove it --
+        # only clean up what it itself added.
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeAuthPy(tmp)
+            sys.path.insert(0, tmp)
+            try:
+                bs = BottleSuite(
+                    cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
+                    gen_res=False, gen_db=False,
+                )
+                self.assertEqual(bs.jwt.token_paths["token"](), {"user": "x"})
+                self.assertIn(tmp, sys.path)
+            finally:
+                sys.path.remove(tmp)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupAuth_authPyBroken_raisesAndSkipsModuleCleanup(self):
+        # A syntax error in auth.py means import_module() never adds "auth"
+        # to sys.modules -- the cleanup's "if 'auth' in sys.modules" guard
+        # must not choke on that, and the original exception must propagate.
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeAuthPy(tmp, body="def authenticate(:\n    pass\n")
+            with self.assertRaises(SyntaxError):
+                BottleSuite(
+                    cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
+                    gen_res=False, gen_db=False,
+                )
+            self.assertNotIn("auth", sys.modules)
+            self.assertNotIn(tmp, sys.path)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
 
     def test_setupJwt_strConfig(self):
         bs = BottleSuite(
@@ -823,17 +892,6 @@ class TestBottleSuite(unittest.TestCase):
             with self.assertRaises(AttributeError):
                 bs.getDBTables()
 
-    def test_getSqlTable_mysqlMocked(self):
-        cursor = make_mysql_cursor(
-            fetchall=[("id", "INTEGER", "NO", "PRI", None, "auto_increment")]
-        )
-        bs = BottleSuite(
-            cfg_file=NONEXISTENT_CFG, sqlite=False, sql=False, jwt=False,
-            gen_res=False, gen_db=False,
-        )
-        result = bs.getSqlTable(cursor, "widgets")
-        self.assertEqual(result[0]["field"], "id")
-
     # --- createTable / alterDBTable ---
     def test_createTable_sqlite(self):
         # Regression for fix #13 (self.sqlite.dbfile -> sql_config["database"]).
@@ -937,7 +995,14 @@ class TestBottleSuite(unittest.TestCase):
         )
         bs.createTable("widgets")  # no crash, no real connection attempted
 
-    def test_alterDBTable_mysqlConfigured_isNoop_characterized(self):
+    def test_alterDBTable_mysqlMocked_addColumn_success(self):
+        cursor = make_mysql_cursor(
+            fetchall=[("id", "INTEGER", "NO", "PRI", None, "auto_increment"),
+                      ("name", "TEXT", "YES", "", None, "")]
+        )
+        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         bs = BottleSuite(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
@@ -945,9 +1010,204 @@ class TestBottleSuite(unittest.TestCase):
         )
         bs.alterDBTable(
             "widgets",
-            {"cid": 0, "name": "x", "type": "TEXT", "notnull": 0,
+            {"cid": None, "name": "age", "type": "INT", "notnull": 0,
              "dflt_value": None, "pk": 0},
         )
+        sql = cursor.execute.call_args_list[-1][0][0]
+        self.assertIn("ADD COLUMN age INT", sql)
+        mock_conn.commit.assert_called()
+
+    def test_alterDBTable_mysqlMocked_renameColumn_success(self):
+        cursor = make_mysql_cursor(
+            fetchall=[("id", "INTEGER", "NO", "PRI", None, "auto_increment"),
+                      ("name", "TEXT", "YES", "", None, "")]
+        )
+        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=False,
+            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
+            jwt=False, gen_res=False, gen_db=False,
+        )
+        bs.alterDBTable(
+            "widgets",
+            {"cid": "name", "name": "widget_name", "type": "TEXT", "notnull": 0,
+             "dflt_value": None, "pk": 0},
+        )
+        sql = cursor.execute.call_args_list[-1][0][0]
+        self.assertIn("RENAME COLUMN name TO widget_name", sql)
+        mock_conn.commit.assert_called()
+
+    def test_alterDBTable_mysqlMocked_neitherRenameNorAdd_noop(self):
+        cursor = make_mysql_cursor(
+            fetchall=[("id", "INTEGER", "NO", "PRI", None, "auto_increment")]
+        )
+        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=False,
+            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
+            jwt=False, gen_res=False, gen_db=False,
+        )
+        bs.alterDBTable(
+            "widgets",
+            {"cid": None, "name": "", "type": "TEXT", "notnull": 0,
+             "dflt_value": None, "pk": 0},
+        )
+        mock_conn.commit.assert_called()
+
+    def test_alterDBTable_mysqlMocked_addColumn_notnullNoDefault_getsPlaceholder(self):
+        cursor = make_mysql_cursor(
+            fetchall=[("id", "INTEGER", "NO", "PRI", None, "auto_increment")]
+        )
+        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=False,
+            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
+            jwt=False, gen_res=False, gen_db=False,
+        )
+        bs.alterDBTable(
+            "widgets",
+            {"cid": None, "name": "required_field", "type": "TEXT", "notnull": 1,
+             "dflt_value": None, "pk": 0},
+        )
+        sql = cursor.execute.call_args_list[-1][0][0]
+        self.assertIn("DEFAULT ''", sql)
+
+    def test_alterDBTable_noDbConfigured_noop(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=False, sql=False, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        bs.alterDBTable(
+            "widgets",
+            {"cid": None, "name": "age", "type": "INTEGER", "notnull": 0,
+             "dflt_value": None, "pk": 0},
+        )
+
+    def test_alterDBTable_mysqlMocked_addColumn_invalidDatatype_raisesValueError(self):
+        cursor = make_mysql_cursor(
+            fetchall=[("id", "INTEGER", "NO", "PRI", None, "auto_increment")]
+        )
+        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=False,
+            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
+            jwt=False, gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.alterDBTable(
+                "widgets",
+                {"cid": None, "name": "age", "type": "INT); DROP TABLE widgets;--",
+                 "notnull": 0, "dflt_value": None, "pk": 0},
+            )
+
+    def test_alterDBTable_invalidTableName_raisesValueError(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.alterDBTable(
+                "animals; DROP TABLE animals;--",
+                {"cid": None, "name": "age", "type": "INTEGER", "notnull": 0,
+                 "dflt_value": None, "pk": 0},
+            )
+
+    def test_alterDBTable_sqlite_addColumn_invalidColumnName_raisesValueError(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.alterDBTable(
+                "animals",
+                {"cid": None, "name": "age); DROP TABLE animals;--",
+                 "type": "INTEGER", "notnull": 0, "dflt_value": None, "pk": 0},
+            )
+
+    def test_alterDBTable_sqlite_renameColumn_invalidNewName_raisesValueError(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.alterDBTable(
+                "animals",
+                {"cid": 1, "name": "bad name", "type": "TEXT", "notnull": 0,
+                 "dflt_value": None, "pk": 0},
+            )
+
+    def test_alterDBTable_sqlite_addColumn_invalidDatatype_raisesValueError(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.alterDBTable(
+                "animals",
+                {"cid": None, "name": "age", "type": "TEXT); DROP TABLE animals;--",
+                 "notnull": 0, "dflt_value": None, "pk": 0},
+            )
+
+    def test_alterDBTable_sqlite_addColumn_emptyDatatype_defaultsToText(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        bs.alterDBTable(
+            "animals",
+            {"cid": None, "name": "notes", "type": "", "notnull": 0,
+             "dflt_value": None, "pk": 0},
+        )
+        fields = bs.getDBTable(bs.getDBCursor(), "animals")
+        field = next(f for f in fields if f["name"] == "notes")
+        self.assertEqual(field["type"], "TEXT")
+
+    def test_alterDBTable_sqlite_addColumn_invalidDefaultValue_raisesValueError(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(ValueError):
+            bs.alterDBTable(
+                "animals",
+                {"cid": None, "name": "age", "type": "INTEGER", "notnull": 0,
+                 "dflt_value": "1); DROP TABLE animals;--", "pk": 0},
+            )
+
+    def test_alterDBTable_sqlite_addColumn_validDefaultValue(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
+            gen_res=False, gen_db=False,
+        )
+        bs.alterDBTable(
+            "animals",
+            {"cid": None, "name": "age", "type": "INTEGER", "notnull": 0,
+             "dflt_value": "5", "pk": 0},
+        )
+        fields = bs.getDBTable(bs.getDBCursor(), "animals")
+        self.assertIn("age", [f["name"] for f in fields])
 
     # --- alterDBTable: drop column ---
     def test_alterDBTable_sqlite_dropColumn_removesColumn(self):
@@ -1443,47 +1703,13 @@ class TestBottleSuite(unittest.TestCase):
         with self.assertRaises(TypeError):
             enc.default(object())
 
-    # --- resource_names / getRefEndpoints ---
+    # --- resource_names ---
     def test_resourceNames_noRest_returnsEmptySet(self):
         bs = BottleSuite(
             cfg_file=NONEXISTENT_CFG, rest=False, jwt=False, sqlite=False,
             sql=False, gen_res=False, gen_db=False,
         )
         self.assertEqual(bs.resource_names, set())
-
-    def test_getRefEndpoints_sqlite_currentlyCrashes_characterized(self):
-        # Same pre-existing, MySQL-only FOREIGN_KEY_SQL limitation as the
-        # nested ref-table route (see test_resource_factory.py) -- this
-        # method is unused/dead in the current call graph (commented out in
-        # createResForDB) and crashes on sqlite for the same reason.
-        tmp_db = db_fixtures.temp_sqlite_copy()
-        self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
-            cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
-            gen_res=False, gen_db=False,
-        )
-        with self.assertRaises(Exception):
-            bs.getRefEndpoints("predations")
-
-    def test_getRefEndpoints_mysqlMocked(self):
-        cursor = make_mysql_cursor(
-            fetchall=[
-                {"table_name": "predations", "column_name": "predator",
-                 "referenced_table_name": "animals", "referenced_column_name": "id"},
-                {"table_name": "predations", "column_name": "self_ref",
-                 "referenced_table_name": "predations", "referenced_column_name": "id"},
-            ]
-        )
-        patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        bs = BottleSuite(
-            cfg_file=NONEXISTENT_CFG,
-            sql={"host": "h", "user": "u", "password": "p", "database": "d"},
-            sqlite=False, jwt=False, gen_res=False, gen_db=False,
-        )
-        endpoints = bs.getRefEndpoints("predations")
-        self.assertEqual(endpoints, ["/animals/<id>/predations"])
 
     def test_getSQLiteTable(self):
         with sqlite3.connect("resources.db") as conn:
