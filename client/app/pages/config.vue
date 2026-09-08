@@ -22,6 +22,17 @@
         </div>
       </UCard>
 
+      <UCard>
+        <div class="flex items-center gap-3 mb-3">
+          <UIcon name="i-lucide-shield" class="size-5 text-muted shrink-0" />
+          <div>
+            <p class="font-medium">Roles</p>
+            <p class="text-sm text-muted">Role names available when editing a resource's roles.</p>
+          </div>
+        </div>
+        <UInputTags v-model="roles" placeholder="Add a role and press enter..." class="w-full font-mono" />
+      </UCard>
+
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <ConfigPluginSection
           v-model="jwt"
@@ -94,6 +105,7 @@ const sqlOptionalFields: FieldDef[] = [
 const cors = ref(false)
 const rest = ref(false)
 const dashboard = ref(false)
+const roles = ref<string[]>([])
 const jwt = ref<PluginSection>({ enabled: false, known: {}, extra: [] })
 const sqlite = ref<PluginSection>({ enabled: false, known: {}, extra: [] })
 const sql = ref<PluginSection>({ enabled: false, known: {}, extra: [] })
@@ -102,18 +114,24 @@ const confirmDisableOpen = ref(false)
 const savedSnapshot = ref('')
 
 function formSnapshot() {
-  return JSON.stringify({ cors: cors.value, rest: rest.value, dashboard: dashboard.value, jwt: jwt.value, sqlite: sqlite.value, sql: sql.value })
+  return JSON.stringify({ cors: cors.value, rest: rest.value, dashboard: dashboard.value, jwt: jwt.value, sqlite: sqlite.value, sql: sql.value, roles: roles.value })
 }
 
 const isDirty = computed(() => formSnapshot() !== savedSnapshot.value)
 
+function dashboardEnabled(raw: unknown): boolean {
+  if (typeof raw === 'object' && raw !== null) return !!(raw as { enabled?: boolean }).enabled
+  return !!raw
+}
+
 function loadFromParsed() {
   cors.value = !!parsed.value.cors
   rest.value = !!parsed.value.rest
-  dashboard.value = !!parsed.value.dashboard
+  dashboard.value = dashboardEnabled(parsed.value.dashboard)
   jwt.value = sectionFromToml(parsed.value.jwt, ['jwt_key', ...jwtOptionalFields.map(f => f.key)], 'jwt_key')
   sqlite.value = sectionFromToml(parsed.value.sqlite, ['database', ...sqliteOptionalFields.map(f => f.key)], 'database')
   sql.value = sectionFromToml(parsed.value.sql, ['host', 'port', 'user', 'password', 'database', ...sqlOptionalFields.map(f => f.key)], 'database')
+  roles.value = [...((parsed.value.roles as { names?: string[] } | undefined)?.names ?? [])]
   savedSnapshot.value = formSnapshot()
 }
 
@@ -155,14 +173,24 @@ async function confirmDisableAndSave() {
 async function doSave() {
   saving.value = true
   try {
+    const existingDashboard = parsed.value.dashboard
     parsed.value = {
       ...parsed.value,
       cors: cors.value,
       rest: rest.value,
-      dashboard: dashboard.value,
+      // Preserve the dashboard's bootstrapped admin credentials (username/
+      // password_hash, set via /dashboard/setup) when it's an object -
+      // overwriting with a bare boolean here would wipe them out on any
+      // save (not just a dashboard toggle) and lock the admin out, since
+      // DashboardToken.authenticate() requires cfg["dashboard"] to still
+      // be a dict.
+      dashboard: (typeof existingDashboard === 'object' && existingDashboard !== null)
+        ? { ...existingDashboard, enabled: dashboard.value }
+        : dashboard.value,
       jwt: sectionToToml(jwt.value, 'jwt_key'),
       sqlite: sectionToToml(sqlite.value, 'database'),
       sql: sectionToToml(sql.value, 'database'),
+      roles: { names: roles.value },
     }
     await saveConfig()
     savedSnapshot.value = formSnapshot()

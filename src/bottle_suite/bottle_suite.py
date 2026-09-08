@@ -7,10 +7,11 @@ from typing import Union
 import toml
 import os
 import sys
+import secrets
 import inspect
 import importlib
 from . import resource_factory, reload, resource_scaffold, openapi
-from .resources import AllResources, DataTypes, Config, PythonResources
+from .resources import AllResources, DataTypes, Config, PythonResources, ResourceRoles
 from .dashboard.resources.token import DashboardToken
 import pymysql
 import pymysql.cursors
@@ -56,6 +57,7 @@ class BottleSuite(Bottle):
         sql: Union[bool, str, dict] = False,
         gen_db: bool = True,
         gen_res: bool = True,
+        gen_auth: bool = True,
         cfg_file: str = "bottle_suite.toml",
         dashboard: bool = False,
         openapi: Union[bool, dict] = True,
@@ -90,6 +92,7 @@ class BottleSuite(Bottle):
             sql = self.cfg["sql"]
         if "openapi" in self.cfg:
             openapi = self.cfg["openapi"]
+        dashboard, rest, jwt = self.checkDashboardRequirements(dashboard, rest, jwt)
         self.setupCors(cors)
         if sql and sqlite:
             # Only one DB backend at a time: getDBCursor/getDBTables and every
@@ -98,6 +101,7 @@ class BottleSuite(Bottle):
         self.setupSql(sql)
         self.setupSqlite(sqlite)
         self.setupJwt(jwt)
+        self.setupAuth(gen_auth)
         self.setupDashboard(dashboard)
         self.setupRest(rest, gen_res)
         if gen_db and (sql or sqlite):
@@ -111,6 +115,45 @@ class BottleSuite(Bottle):
         except:
             return set()
 
+    def checkDashboardRequirements(self, dashboard, rest, jwt):
+        if isinstance(dashboard, dict):
+            enabled = dashboard.get("enabled", True)
+        else:
+            enabled = bool(dashboard)
+        if not enabled or (rest and jwt):
+            return dashboard, rest, jwt
+        missing = [name for name, val in (("rest", rest), ("jwt", jwt)) if not val]
+        missing_str = " and ".join(missing)
+        if sys.stdin.isatty():
+            choice = (
+                input(
+                    f"Dashboard is enabled but {missing_str} "
+                    f"{'is' if len(missing) == 1 else 'are'} disabled - the "
+                    f"dashboard cannot fully function without both. Enable "
+                    f"{missing_str} now? [Y/n]: "
+                )
+                .strip()
+                .lower()
+            )
+            if choice in ("", "y", "yes"):
+                if not rest:
+                    rest = True
+                    self.cfg["rest"] = True
+                if not jwt:
+                    jwt = secrets.token_urlsafe(32)
+                    self.cfg["jwt"] = jwt
+                self.saveConfig()
+            else:
+                dashboard = False
+                print("Dashboard disabled.")
+        else:
+            raise Exception(
+                f"Dashboard requires {missing_str} to be enabled (set "
+                f"{missing_str} in {self.cfg_file} or pass to the BottleSuite "
+                "constructor), or disable the dashboard."
+            )
+        return dashboard, rest, jwt
+
     def setupDashboard(self, use_dashboard: Union[bool, dict]):
         if isinstance(use_dashboard, dict):
             enabled = use_dashboard.get("enabled", True)
@@ -122,19 +165,22 @@ class BottleSuite(Bottle):
                     f"Dashboard enabled but no build found at {DIST} - run 'make dashboard'"
                 )
             self.dashboard_token = DashboardToken(self)
-            if self.jwt:
-                # The dashboard's bootstrapped admin account (see
-                # /dashboard/setup) logs in through its own route, never
-                # /token - that endpoint is the project's own API auth,
-                # whatever it's wired to, and must never be silently
-                # replaced by dashboard credentials. JWTPlugin.apply() keys
-                # off route.rule with "/" stripped, so "dashboardtoken" is
-                # what "/dashboard/token" collapses to. It's excluded from
-                # the OpenAPI spec/`_resources` like the rest of /dashboard.
-                self.jwt.addTokenPath("dashboardtoken", self.dashboard_token.authenticate)
-                self.route("/dashboard/token", "GET", self.dashboard_token.authenticate)
-                self.route("/dashboard/token", "POST", self.dashboard_token.authenticate)
-                self.route("/dashboard/token", "OPTIONS", self.dashboard_token.authenticate)
+            # checkDashboardRequirements() (called earlier in __init__,
+            # before setupJwt) guarantees self.jwt is truthy here whenever
+            # the dashboard is enabled - it either already was, the user
+            # chose to enable it interactively, or the dashboard itself got
+            # disabled instead. The dashboard's bootstrapped admin account
+            # (see /dashboard/setup) logs in through its own route, never
+            # /token - that endpoint is the project's own API auth,
+            # whatever it's wired to, and must never be silently
+            # replaced by dashboard credentials. JWTPlugin.apply() keys
+            # off route.rule with "/" stripped, so "dashboardtoken" is
+            # what "/dashboard/token" collapses to. It's excluded from
+            # the OpenAPI spec/`_resources` like the rest of /dashboard.
+            self.jwt.addTokenPath("dashboardtoken", self.dashboard_token.authenticate)
+            self.route("/dashboard/token", "GET", self.dashboard_token.authenticate)
+            self.route("/dashboard/token", "POST", self.dashboard_token.authenticate)
+            self.route("/dashboard/token", "OPTIONS", self.dashboard_token.authenticate)
             self.route("/dashboard/_nuxt/<filename>", method="GET", callback=nuxt)
             self.route(
                 ["/dashboard", "/dashboard<path:path>"],
@@ -165,6 +211,7 @@ class BottleSuite(Bottle):
             self.rest.addResource(
                 PythonResources(self), "/_python_resources", "/_python_resources/<resource>"
             )
+            self.rest.addResource(ResourceRoles(self), "/_roles")
             if getattr(self, "dashboard_token", None):
                 self.rest.addResource(self.dashboard_token, "/dashboard/setup")
         else:
@@ -234,6 +281,30 @@ class BottleSuite(Bottle):
         if not func:
             func = authFunc
         self.jwt.token_paths[token_path] = func
+
+    def setupAuth(self, gen: bool):
+        if not (gen and self.jwt and os.path.exists(os.path.join(os.getcwd(), "auth.py"))):
+            return
+        # Same temp-sys.path/sys.modules dance as importResourcesDir, scaled
+        # down to a single top-level module instead of a package, so repeated
+        # BottleSuite() construction against different project dirs in the
+        # same process never serves a stale cached auth module.
+        project_root = os.getcwd()
+        path_added = project_root not in sys.path
+        if path_added:
+            sys.path.insert(0, project_root)
+        try:
+            module = importlib.import_module("auth")
+        finally:
+            if "auth" in sys.modules:
+                del sys.modules["auth"]
+            if path_added:
+                sys.path.remove(project_root)
+        func = getattr(module, "authenticate", None)
+        if not callable(func):
+            print("auth.py found but has no callable 'authenticate' -- skipping")
+            return
+        self.setTokenAuthFunction(func)
 
     def importResourcesDir(self):
         # Load resources/ as a real (namespace) package rather than
@@ -608,19 +679,34 @@ class BottleSuite(Bottle):
         self.saveConfig()
         self.reloadServer()
 
-    def updateRoles(self, resource: str, method: str, roles: Union[list, str]):
-        print(f"Updating roles for {resource}")
-        cfg_resource = self.getResourceConfig(resource)
-        if "roles" in cfg_resource:
-            cfg_roles = cfg_resource["roles"]
-        else:
-            cfg_roles = cfg_resource["roles"] = {method: False}
+    @staticmethod
+    def _normalizeRoles(roles: Union[list, bool, str]) -> Union[list, bool]:
         if isinstance(roles, (list, bool)):
-            cfg_roles[method] = roles
-        elif roles.lower() in ["true", "false"]:
-            cfg_roles[method] = roles == "true"
-        else:
-            cfg_roles[method] = roles.split(",")
+            return roles
+        if roles.lower() in ["true", "false"]:
+            return roles.lower() == "true"
+        return roles.split(",")
+
+    def _setRoles(
+        self, resource: str, method: Union[str, list], roles: Union[list, bool, str]
+    ):
+        cfg_resource = self.getResourceConfig(resource)
+        cfg_roles = cfg_resource.setdefault("roles", {})
+        normalized = self._normalizeRoles(roles)
+        for m in method if isinstance(method, list) else [method]:
+            cfg_roles[m] = normalized
+
+    def updateRoles(
+        self, resource: str, method: Union[str, list], roles: Union[list, bool, str]
+    ):
+        print(f"Updating roles for {resource}")
+        self._setRoles(resource, method, roles)
+        self.saveConfig()
+        self.reloadServer()
+
+    def updateRolesBulk(self, updates: list) -> None:
+        for u in updates:
+            self._setRoles(u["resource"], u["method"], u["roles"])
         self.saveConfig()
         self.reloadServer()
 

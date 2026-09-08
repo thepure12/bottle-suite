@@ -11,6 +11,12 @@ enabled = true
 # POST /dashboard/setup) on first run to choose your own admin credentials.
 # See example/README.md.
 
+[resources.project_tasks]
+paths = [ "/projects/<project_id>/tasks",]
+
+[resources.project_summary]
+paths = [ "/projects/<project_id>/summary",]
+
 [resources.projects.roles]
 get = false
 post = true
@@ -34,9 +40,3 @@ delete = [ "admin",]
 get = false
 post = true
 delete = [ "admin",]
-
-[resources.project_tasks]
-paths = [ "/projects/<project_id>/tasks",]
-
-[resources.project_summary]
-paths = [ "/projects/<project_id>/summary",]

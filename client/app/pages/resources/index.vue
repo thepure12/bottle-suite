@@ -26,6 +26,14 @@
           <span class="font-mono text-sm flex-1 truncate">{{ r.name }}</span>
         </NuxtLink>
         <UButton
+          :to="`/resources/${r.id}#Roles`"
+          icon="i-lucide-shield"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          aria-label="Roles"
+        />
+        <UButton
           icon="i-lucide-trash-2"
           color="error"
           variant="ghost"

@@ -46,6 +46,7 @@ const NAV_ITEMS = [
   { label: 'DB Resources', icon: 'i-lucide-package', to: '/resources' },
   { label: 'Python Resources', icon: 'i-lucide-file-code-2', to: '/python-resources' },
   { label: 'API Explorer', icon: 'i-lucide-flask-conical', to: '/api-explorer' },
+  { label: 'Roles', icon: 'i-lucide-shield', to: '/roles' },
   { label: 'Config', icon: 'i-lucide-settings', to: '/config' },
 ]
 const navItems = [NAV_ITEMS]

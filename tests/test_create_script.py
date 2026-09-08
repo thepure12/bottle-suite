@@ -27,6 +27,26 @@ class TestGetResourceName(unittest.TestCase):
                 create.getResourceName(args)
 
 
+class TestCreateProjectDir(unittest.TestCase):
+    def setUp(self):
+        self.orig_cwd = os.getcwd()
+        self.tmpdir = tempfile.mkdtemp()
+        os.chdir(self.tmpdir)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        shutil.rmtree(self.tmpdir)
+
+    def test_createProjectDir_scaffolds_auth_stub(self):
+        create.createProjectDir("myproject")
+        path = os.path.join(self.tmpdir, "myproject", "auth.py")
+        self.assertTrue(os.path.exists(path))
+        with open(path) as f:
+            content = f.read()
+        self.assertIn("def authenticate(", content)
+        self.assertIn("return None", content)
+
+
 class TestResourceFileAndConfig(unittest.TestCase):
     def setUp(self):
         self.orig_cwd = os.getcwd()

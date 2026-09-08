@@ -13,6 +13,12 @@ export interface ResourceRole {
   roles: boolean | string[]
 }
 
+// A roles patch is either single-method ({method, roles}) or bulk
+// ({methods, roles}, applying the same role set to several methods at once).
+export type RolesPatch =
+  | { method: string; roles: boolean | string[] }
+  | { methods: string[]; roles: boolean | string[] }
+
 export interface ResourceField {
   name: string
   type: string
@@ -59,9 +65,9 @@ export function useResourcesStore() {
   }
 
   // attr_name/value shape matches AllResources.patch on the backend exactly
-  // (resources.py): "roles" -> {method, roles: "true"|"false"|"role,role"},
-  // "paths" -> {index, path}, "fields" -> full field-attrs dict for
-  // alterDBTable. The backend returns no body on success, so re-fetch the
+  // (resources.py): "roles" -> {method, roles} or {methods: [...], roles} for
+  // a bulk edit, "paths" -> {index, path}, "fields" -> full field-attrs dict
+  // for alterDBTable. The backend returns no body on success, so re-fetch the
   // resource afterwards rather than trying to replicate its array-mutation
   // semantics (index-or-append for paths, rename-or-add for fields) locally.
   async function updateResourceAttr(attrName: 'roles' | 'paths' | 'fields', value: Record<string, unknown>) {

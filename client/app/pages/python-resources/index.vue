@@ -27,6 +27,14 @@
           <span class="font-mono text-xs text-dimmed shrink-0">resources/{{ r.name }}.py</span>
         </NuxtLink>
         <UButton
+          :to="`/python-resources/${r.name}#Roles`"
+          icon="i-lucide-shield"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          aria-label="Roles"
+        />
+        <UButton
           icon="i-lucide-trash-2"
           color="error"
           variant="ghost"

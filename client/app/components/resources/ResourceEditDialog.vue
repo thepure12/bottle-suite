@@ -1,8 +1,23 @@
 <template>
-  <UModal v-model:open="open" :title="`${isNew ? 'Add' : 'Edit'} ${singular}`">
+  <UModal v-model:open="open" :title="dialogTitle">
     <template #body>
       <div class="space-y-4">
-        <UFormField v-for="key in keys" :key="key" :label="humanizeKey(key)">
+        <div v-if="bulkItems?.length || bulkMethods?.length" class="space-y-1">
+          <p class="text-sm text-muted">Editing roles for:</p>
+          <div class="flex flex-wrap gap-1">
+            <template v-if="bulkItems?.length">
+              <UBadge v-for="entry in bulkItems" :key="entry.resource" color="neutral" variant="subtle" class="font-mono">
+                {{ entry.resource }}: {{ entry.methods.join(', ').toUpperCase() }}
+              </UBadge>
+            </template>
+            <template v-else>
+              <UBadge v-for="m in bulkMethods" :key="m" color="neutral" variant="subtle" class="uppercase">
+                {{ m }}
+              </UBadge>
+            </template>
+          </div>
+        </div>
+        <UFormField v-for="key in visibleKeys" :key="key" :label="humanizeKey(key)">
           <USelect
             v-if="key === 'type' && tab === 'Fields'"
             v-model="localItem[key]"
@@ -55,12 +70,30 @@ const props = defineProps<{
   datatypes: string[]
   disabledKeys: string[]
   roleOptions?: string[]
+  bulkMethods?: string[]
+  bulkItems?: { resource: string; methods: string[] }[]
   saving?: boolean
 }>()
 
 const emit = defineEmits<{ save: [item: Record<string, any>] }>()
 
 const singular = computed(() => props.tab.replace(/s$/, ''))
+const dialogTitle = computed(() => {
+  if (props.bulkItems?.length) {
+    const methodCount = props.bulkItems.reduce((sum, e) => sum + e.methods.length, 0)
+    return `Edit Roles (${props.bulkItems.length} resources, ${methodCount} methods)`
+  }
+  if (props.bulkMethods?.length) return `Edit Roles (${props.bulkMethods.length} methods)`
+  return `${props.isNew ? 'Add' : 'Edit'} ${singular.value}`
+})
+// Bulk edits apply one role set to several methods (optionally spanning
+// several resources) at once -- the resource/method fields don't apply,
+// they're replaced by the bulkItems/bulkMethods summary above.
+const visibleKeys = computed(() => props.keys.filter((k) => {
+  if (props.bulkItems?.length) return !['resource', 'method'].includes(k)
+  if (props.bulkMethods?.length) return k !== 'method'
+  return true
+}))
 
 const localItem = reactive<Record<string, any>>({})
 watch(() => props.item, (val) => {
@@ -100,6 +133,12 @@ function onCreateRole(item: string) {
 }
 
 function save() {
-  emit('save', { ...localItem })
+  if (props.bulkItems?.length) {
+    emit('save', { roles: localItem.roles, bulkItems: props.bulkItems })
+  } else if (props.bulkMethods?.length) {
+    emit('save', { roles: localItem.roles, methods: props.bulkMethods })
+  } else {
+    emit('save', { ...localItem })
+  }
 }
 </script>

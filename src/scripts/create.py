@@ -6,7 +6,7 @@ import shutil
 import pathlib
 import sqlite3
 
-from bottle_suite import resource_scaffold
+from bottle_suite import resource_scaffold, auth_scaffold
 
 
 class Colors:
@@ -90,6 +90,7 @@ def createProjectDir(dirname):
             toml.dump(cfg, f)
         path = f"{pathlib.Path(__file__).parent.resolve()}"
         shutil.copyfile(f"{path}/hello_world.py", f"{dirname}/resources/hello_world.py")
+        auth_scaffold.writeAuthFile(dirname)
     except FileExistsError as e:
         cprint(f"(error) {e} already exists.", Colors.RED)
         exit()

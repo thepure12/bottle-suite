@@ -73,6 +73,34 @@ def _buildRoles(config: dict) -> list:
     return [{"method": k, "roles": v} for k, v in roles.items()]
 
 
+def _listDbResourceNames(app: "BottleSuite") -> dict:
+    resources = {}
+    for r in app.rest.resources:
+        name = getattr(r, "name", r.__class__.__name__)
+        table = getattr(r, "table", None)
+        if not table:
+            continue
+        if name in resources and resources[name] != table:
+            # Same resource name but a different backing table -- keep
+            # both instead of letting the later one silently overwrite
+            # the earlier one's entry.
+            name = f"{name} ({table})"
+        resources[name] = table
+    return resources
+
+
+def _listPythonResourceNames() -> list:
+    resources_dir = os.path.join(os.getcwd(), "resources")
+    names = []
+    if os.path.isdir(resources_dir):
+        names = sorted(
+            f[:-3]
+            for f in os.listdir(resources_dir)
+            if f.endswith(".py") and f != "__init__.py"
+        )
+    return names
+
+
 class Config(Resource):
     def __init__(self, app: "BottleSuite") -> None:
         super().__init__()
@@ -145,18 +173,7 @@ class AllResources(Resource):
             res_data["roles"] = _buildRoles(config)
             return res_data
         else:
-            resources = {}
-            for r in self.app.rest.resources:
-                name = getattr(r, "name", r.__class__.__name__)
-                table = getattr(r, "table", None)
-                if not table:
-                    continue
-                if name in resources and resources[name] != table:
-                    # Same resource name but a different backing table -- keep
-                    # both instead of letting the later one silently overwrite
-                    # the earlier one's entry.
-                    name = f"{name} ({table})"
-                resources[name] = table
+            resources = _listDbResourceNames(self.app)
 
             return {
                 "resources": [
@@ -180,7 +197,11 @@ class AllResources(Resource):
         attr_name = attr_name.lower()
         try:
             if attr_name == "roles":
-                method = value["method"].lower()
+                method = (
+                    [m.lower() for m in value["methods"]]
+                    if "methods" in value
+                    else value["method"].lower()
+                )
                 roles = value["roles"]
                 self.app.updateRoles(resource, method, roles)
             elif attr_name == "paths":
@@ -225,15 +246,7 @@ class PythonResources(Resource):
         pass
 
     def _listNames(self):
-        resources_dir = os.path.join(os.getcwd(), "resources")
-        names = []
-        if os.path.isdir(resources_dir):
-            names = sorted(
-                f[:-3]
-                for f in os.listdir(resources_dir)
-                if f.endswith(".py") and f != "__init__.py"
-            )
-        return names
+        return _listPythonResourceNames()
 
     def get(self, resource=None):
         names = self._listNames()
@@ -261,7 +274,11 @@ class PythonResources(Resource):
         attr_name = attr_name.lower()
         try:
             if attr_name == "roles":
-                method = value["method"].lower()
+                method = (
+                    [m.lower() for m in value["methods"]]
+                    if "methods" in value
+                    else value["method"].lower()
+                )
                 roles = value["roles"]
                 self.app.updateRoles(resource, method, roles)
             elif attr_name == "paths":
@@ -284,3 +301,42 @@ class PythonResources(Resource):
             }
         self.app.deleteResourceFile(resource)
         return {"message": f"{resource} deleted"}
+
+
+class ResourceRoles(Resource):
+    def __init__(self, app: "BottleSuite") -> None:
+        super().__init__()
+        self.app = app
+
+    def options(self):
+        pass
+
+    def get(self):
+        out = []
+        # Use the canonical table name (the dict value, not the possibly
+        # display-decorated key) -- roles are stored in cfg under the real
+        # table name, which is also what updateRoles/updateRolesBulk expect.
+        for table in set(_listDbResourceNames(self.app).values()):
+            config = self.app.cfg.get("resources", {}).get(table, {})
+            out.append({"name": table, "kind": "db", "roles": _buildRoles(config)})
+        for name in _listPythonResourceNames():
+            config = self.app.cfg.get("resources", {}).get(name, {})
+            out.append({"name": name, "kind": "python", "roles": _buildRoles(config)})
+        return {"resources": out}
+
+    def patch(self, updates):
+        try:
+            normalized = []
+            for u in updates:
+                method = (
+                    [m.lower() for m in u["methods"]]
+                    if "methods" in u
+                    else u["method"].lower()
+                )
+                normalized.append(
+                    {"resource": u["resource"], "method": method, "roles": u["roles"]}
+                )
+            self.app.updateRolesBulk(normalized)
+        except KeyError as e:
+            response.status = 400
+            return {"message": f"Missing expected key: {e}"}

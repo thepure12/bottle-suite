@@ -38,9 +38,9 @@ export function usePythonResourcesStore() {
   }
 
   // attr_name/value shape matches PythonResources.patch on the backend
-  // (resources.py): "roles" -> {method, roles: "true"|"false"|"role,role"},
-  // "paths" -> {index, path}. The backend returns no body on success, so
-  // re-fetch the resource afterwards rather than replicating its
+  // (resources.py): "roles" -> {method, roles} or {methods: [...], roles} for
+  // a bulk edit, "paths" -> {index, path}. The backend returns no body on
+  // success, so re-fetch the resource afterwards rather than replicating its
   // array-mutation semantics locally.
   async function updateResourceAttr(attrName: 'roles' | 'paths', value: Record<string, unknown>) {
     if (!resource.value) return

@@ -281,7 +281,7 @@ class TestBuildSpecIntegration(unittest.TestCase):
     def test_metaAndDashboardRoutes_excluded(self):
         for rule in (
             "/_resources", "/_datatypes", "/bottle_suite_cfg",
-            "/_python_resources", "/dashboard", "/openapi.json",
+            "/_python_resources", "/_roles", "/dashboard", "/openapi.json",
         ):
             self.assertNotIn(rule, self.paths)
 

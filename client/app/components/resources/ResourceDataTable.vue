@@ -36,15 +36,22 @@ const props = withDefaults(defineProps<{
   emptyMessage?: string
   showDelete?: boolean
   canDelete?: (item: Record<string, any>) => boolean
+  selectable?: boolean
+  selectKey?: string
 }>(), {
   emptyMessage: 'No data available. Try refreshing - the server may be reloading.',
   showDelete: false,
   canDelete: () => true,
+  selectable: false,
+  selectKey: 'method',
 })
 
 const emit = defineEmits<{ edit: [item: Record<string, any>]; delete: [item: Record<string, any>]; refresh: [] }>()
 
+const selected = defineModel<string[]>('selected', { default: () => [] })
+
 const UButton = resolveComponent('UButton')
+const UCheckbox = resolveComponent('UCheckbox')
 
 const page = ref(1)
 const pageSize = 20
@@ -55,6 +62,7 @@ const pageItems = computed(() => {
 })
 
 watch(() => props.items.length, () => { page.value = 1 })
+watch(() => props.selectable, () => { selected.value = [] })
 
 const columns = computed<TableColumn<Record<string, any>>[]>(() => {
   const allKeys = props.items.length ? Object.keys(props.items[0] ?? {}) : (props.columnKeys ?? [])
@@ -74,6 +82,38 @@ const columns = computed<TableColumn<Record<string, any>>[]>(() => {
         accessorKey: key,
         header: humanizeKey(key),
       }))
+  if (props.selectable) {
+    cols.unshift({
+      id: 'select',
+      // Selects/deselects every item matching the current filter, not just
+      // the current page -- selection already persists across pages via
+      // the id-based selected[] model, so "select all" should too.
+      header: () => {
+        const allKeys = props.items.map(item => item[props.selectKey])
+        const allSelected = allKeys.length > 0 && allKeys.every(k => selected.value.includes(k))
+        const someSelected = !allSelected && allKeys.some(k => selected.value.includes(k))
+        return h(UCheckbox, {
+          // Nuxt UI's Checkbox has no separate `indeterminate` prop --
+          // that state is expressed by passing 'indeterminate' as the
+          // modelValue itself.
+          modelValue: someSelected ? 'indeterminate' : allSelected,
+          'aria-label': 'Select all',
+          'onUpdate:modelValue': (val: boolean | 'indeterminate') => {
+            selected.value = val === true ? allKeys : []
+          },
+        })
+      },
+      cell: ({ row }) => h(UCheckbox, {
+        modelValue: selected.value.includes(row.original[props.selectKey]),
+        'onUpdate:modelValue': (val: boolean) => {
+          const k = row.original[props.selectKey]
+          selected.value = val
+            ? [...selected.value, k]
+            : selected.value.filter(x => x !== k)
+        },
+      }),
+    })
+  }
   cols.push({
     id: 'actions',
     header: '',

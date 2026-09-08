@@ -8,7 +8,13 @@ import tempfile
 import toml
 import webtest
 from bottle_suite import BottleSuite
-from bottle_suite.resources import Config, DataTypes, AllResources, PythonResources
+from bottle_suite.resources import (
+    Config,
+    DataTypes,
+    AllResources,
+    PythonResources,
+    ResourceRoles,
+)
 from bottle_suite.plugins import rest as bottle_rest
 import db_fixtures
 
@@ -358,6 +364,19 @@ class TestAllResourcesPatch(unittest.TestCase):
             self.bs.cfg["resources"]["animals"]["roles"]["get"], ["admin"]
         )
 
+    def test_patch_roles_bulkMethods_appliesToAll(self):
+        resp = self.app.patch_json(
+            "/_resources/animals",
+            {
+                "attr_name": "roles",
+                "value": {"methods": ["put", "patch"], "roles": ["admin"]},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        roles = self.bs.cfg["resources"]["animals"]["roles"]
+        self.assertEqual(roles["put"], ["admin"])
+        self.assertEqual(roles["patch"], ["admin"])
+
     def test_patch_paths_dispatch(self):
         resp = self.app.patch_json(
             "/_resources/animals",
@@ -571,6 +590,20 @@ class TestPythonResources(unittest.TestCase):
             self.bs.cfg["resources"]["widget"]["roles"]["get"], ["admin", "user"]
         )
 
+    def test_patch_roles_bulkMethods_appliesToAll(self):
+        self.app.post_json("/_python_resources", {"name": "widget"})
+        resp = self.app.patch_json(
+            "/_python_resources/widget",
+            {
+                "attr_name": "roles",
+                "value": {"methods": ["put", "patch"], "roles": ["admin"]},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        roles = self.bs.cfg["resources"]["widget"]["roles"]
+        self.assertEqual(roles["put"], ["admin"])
+        self.assertEqual(roles["patch"], ["admin"])
+
     def test_patch_paths_dispatch(self):
         self.app.post_json("/_python_resources", {"name": "widget"})
         resp = self.app.patch_json(
@@ -623,6 +656,156 @@ class TestPythonResources(unittest.TestCase):
     def test_delete_notFound_404(self):
         resp = self.app.delete("/_python_resources/nope", expect_errors=True)
         self.assertEqual(resp.status_code, 404)
+        self.assertIn("message", resp.json)
+
+
+class TestResourceRoles(unittest.TestCase):
+    def setUp(self):
+        self.orig_cwd = os.getcwd()
+        self.tmp_db = db_fixtures.temp_sqlite_copy()
+        self.cfg_dir, self.cfg_path = db_fixtures.temp_cfg_pointing_at(self.tmp_db)
+        self.project_dir = tempfile.mkdtemp()
+        os.chdir(self.project_dir)
+        self.bs = BottleSuite(
+            cfg_file=self.cfg_path,
+            jwt=False,
+            sqlite=self.tmp_db,
+            gen_res=False,
+            gen_db=True,
+        )
+        self.app = webtest.TestApp(self.bs)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        shutil.rmtree(self.project_dir)
+        os.remove(self.tmp_db)
+        shutil.rmtree(self.cfg_dir)
+
+    def test_options_isNoop(self):
+        self.assertIsNone(ResourceRoles(self.bs).options())
+
+    def test_get_combinesDbAndPythonResources(self):
+        self.app.post_json("/_python_resources", {"name": "widget"})
+        resp = self.app.get("/_roles")
+        self.assertEqual(resp.status_code, 200)
+        by_name = {r["name"]: r for r in resp.json["resources"]}
+        self.assertEqual(by_name["animals"]["kind"], "db")
+        self.assertEqual(by_name["widget"]["kind"], "python")
+        for entry in (by_name["animals"], by_name["widget"]):
+            methods = {r["method"] for r in entry["roles"]}
+            self.assertEqual(
+                methods, {"get", "post", "put", "patch", "delete"}
+            )
+
+    def test_get_partialRolesConfigured_defaultsMissing(self):
+        self.bs.updateRoles("animals", "get", ["admin"])
+        resp = self.app.get("/_roles")
+        entry = next(r for r in resp.json["resources"] if r["name"] == "animals")
+        roles = {r["method"]: r["roles"] for r in entry["roles"]}
+        self.assertEqual(roles["get"], ["admin"])
+        self.assertEqual(roles["post"], False)
+
+    def test_get_noPythonResourcesDir_onlyDbEntries(self):
+        resp = self.app.get("/_roles")
+        kinds = {r["kind"] for r in resp.json["resources"]}
+        self.assertEqual(kinds, {"db"})
+
+    def test_get_noDbConfigured_onlyPythonEntries(self):
+        tmp = tempfile.mkdtemp()
+        cwd = os.getcwd()
+        try:
+            os.chdir(tmp)
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            app = webtest.TestApp(bs)
+            app.post_json("/_python_resources", {"name": "widget"})
+            resp = app.get("/_roles")
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(
+                [(r["name"], r["kind"]) for r in resp.json["resources"]],
+                [("widget", "python")],
+            )
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_patch_singleMethod(self):
+        resp = self.app.patch_json(
+            "/_roles",
+            {"updates": [{"resource": "animals", "method": "get", "roles": "admin,user"}]},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            self.bs.cfg["resources"]["animals"]["roles"]["get"], ["admin", "user"]
+        )
+
+    def test_patch_methodsList(self):
+        resp = self.app.patch_json(
+            "/_roles",
+            {
+                "updates": [
+                    {"resource": "animals", "methods": ["put", "patch"], "roles": ["admin"]}
+                ]
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        roles = self.bs.cfg["resources"]["animals"]["roles"]
+        self.assertEqual(roles["put"], ["admin"])
+        self.assertEqual(roles["patch"], ["admin"])
+
+    def test_patch_multipleResources_dbAndPython_bothUpdated_singleReload(self):
+        self.app.post_json("/_python_resources", {"name": "widget"})
+        with mock.patch.object(self.bs, "saveConfig") as save, mock.patch.object(
+            self.bs, "reloadServer"
+        ) as reload_:
+            resp = self.app.patch_json(
+                "/_roles",
+                {
+                    "updates": [
+                        {"resource": "animals", "method": "get", "roles": True},
+                        {"resource": "widget", "method": "post", "roles": ["admin"]},
+                    ]
+                },
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self.bs.cfg["resources"]["animals"]["roles"]["get"], True)
+        self.assertEqual(
+            self.bs.cfg["resources"]["widget"]["roles"]["post"], ["admin"]
+        )
+        save.assert_called_once()
+        reload_.assert_called_once()
+
+    def test_patch_emptyUpdates_200_noop(self):
+        resp = self.app.patch_json("/_roles", {"updates": []})
+        self.assertEqual(resp.status_code, 200)
+
+    def test_patch_missingResourceKey_400(self):
+        resp = self.app.patch_json(
+            "/_roles",
+            {"updates": [{"method": "get", "roles": "admin"}]},
+            expect_errors=True,
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json)
+
+    def test_patch_missingMethodKey_400(self):
+        resp = self.app.patch_json(
+            "/_roles",
+            {"updates": [{"resource": "animals", "roles": "admin"}]},
+            expect_errors=True,
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json)
+
+    def test_patch_missingRolesKey_400(self):
+        resp = self.app.patch_json(
+            "/_roles",
+            {"updates": [{"resource": "animals", "method": "get"}]},
+            expect_errors=True,
+        )
+        self.assertEqual(resp.status_code, 400)
         self.assertIn("message", resp.json)
 
 

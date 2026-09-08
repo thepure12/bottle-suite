@@ -218,6 +218,143 @@ class TestBottleSuite(unittest.TestCase):
         bs.setTokenAuthFunction(custom)
         self.assertIs(bs.jwt.token_paths["token"], custom)
 
+    # --- setupAuth: auth.py:authenticate auto-discovery ---
+    def _writeAuthPy(self, tmp, body="def authenticate(**kwargs):\n    return {'user': 'x'}\n"):
+        with open(os.path.join(tmp, "auth.py"), "w") as f:
+            f.write(body)
+
+    def test_setupAuth_authPyPresent_wiresUp(self):
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeAuthPy(tmp)
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertEqual(bs.jwt.token_paths["token"](), {"user": "x"})
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupAuth_noAuthPy_noop(self):
+        from bottle_suite.plugins.jwt import authFunc
+
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertIs(bs.jwt.token_paths["token"], authFunc)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupAuth_genAuthFalse_noop(self):
+        from bottle_suite.plugins.jwt import authFunc
+
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeAuthPy(tmp)
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
+                gen_res=False, gen_db=False, gen_auth=False,
+            )
+            self.assertIs(bs.jwt.token_paths["token"], authFunc)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupAuth_jwtDisabled_noop(self):
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeAuthPy(tmp)
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertIsNone(bs.jwt)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupAuth_missingAuthenticateAttr_warnsAndSkips(self):
+        from bottle_suite.plugins.jwt import authFunc
+
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeAuthPy(tmp, body="x = 1\n")
+            with mock.patch("builtins.print") as mock_print:
+                bs = BottleSuite(
+                    cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
+                    gen_res=False, gen_db=False,
+                )
+            self.assertIs(bs.jwt.token_paths["token"], authFunc)
+            self.assertTrue(
+                any("authenticate" in str(c.args) for c in mock_print.call_args_list)
+            )
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupAuth_authenticateNotCallable_warnsAndSkips(self):
+        from bottle_suite.plugins.jwt import authFunc
+
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeAuthPy(tmp, body="authenticate = 'not callable'\n")
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertIs(bs.jwt.token_paths["token"], authFunc)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupAuth_repeatedConstructionAcrossProjects_noStaleModule(self):
+        cwd = os.getcwd()
+        tmp1 = tempfile.mkdtemp()
+        tmp2 = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp1)
+            self._writeAuthPy(
+                tmp1, body="def authenticate(**kwargs):\n    return {'user': 'one'}\n"
+            )
+            bs1 = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertEqual(bs1.jwt.token_paths["token"](), {"user": "one"})
+            self.assertNotIn("auth", sys.modules)
+
+            os.chdir(tmp2)
+            self._writeAuthPy(
+                tmp2, body="def authenticate(**kwargs):\n    return {'user': 'two'}\n"
+            )
+            bs2 = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertEqual(bs2.jwt.token_paths["token"](), {"user": "two"})
+            self.assertNotIn("auth", sys.modules)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp1)
+            shutil.rmtree(tmp2)
+
     def test_setupJwt_strConfig(self):
         bs = BottleSuite(
             cfg_file=NONEXISTENT_CFG,
@@ -411,13 +548,81 @@ class TestBottleSuite(unittest.TestCase):
         self.assertIsNotNone(bs2.dashboard_token)
         self.assertTrue(any(r.rule.startswith("/dashboard") for r in bs2.routes))
 
-    def test_setupDashboard_jwtFalse_noCrash(self):
-        # Regression for fix #10.
-        bs = BottleSuite(
-            cfg_file=NONEXISTENT_CFG, dashboard=True, jwt=False, sqlite=False,
-            sql=False, gen_res=False, gen_db=False,
-        )
-        self.assertIsNone(bs.jwt)
+    # --- checkDashboardRequirements ---
+    def test_dashboardMissingJwt_nonInteractive_raises(self):
+        with mock.patch("sys.stdin.isatty", return_value=False):
+            with self.assertRaises(Exception):
+                BottleSuite(
+                    cfg_file=NONEXISTENT_CFG, dashboard=True, jwt=False,
+                    sqlite=False, sql=False, gen_res=False, gen_db=False,
+                )
+
+    def test_dashboardMissingRest_nonInteractive_raises(self):
+        with mock.patch("sys.stdin.isatty", return_value=False):
+            with self.assertRaises(Exception):
+                BottleSuite(
+                    cfg_file=NONEXISTENT_CFG, dashboard=True, jwt="k", rest=False,
+                    sqlite=False, sql=False, gen_res=False, gen_db=False,
+                )
+
+    def test_dashboardMissingBoth_nonInteractive_raises(self):
+        with mock.patch("sys.stdin.isatty", return_value=False):
+            with self.assertRaises(Exception):
+                BottleSuite(
+                    cfg_file=NONEXISTENT_CFG, dashboard=True, jwt=False, rest=False,
+                    sqlite=False, sql=False, gen_res=False, gen_db=False,
+                )
+
+    def test_dashboardMissingRest_interactive_accept_enablesRest(self):
+        path = self._writeCfg("")
+        with mock.patch("sys.stdin.isatty", return_value=True), mock.patch(
+            "builtins.input", return_value="y"
+        ):
+            bs = BottleSuite(
+                cfg_file=path, dashboard=True, jwt="k", rest=False,
+                sqlite=False, sql=False, gen_res=False, gen_db=False,
+            )
+        self.assertIsNotNone(bs.rest)
+        self.assertIs(bs.cfg["rest"], True)
+        self.assertTrue(any(r.rule == "/dashboard/token" for r in bs.routes))
+
+    def test_dashboardMissingJwt_interactive_accept_enablesJwt(self):
+        path = self._writeCfg("")
+        with mock.patch("sys.stdin.isatty", return_value=True), mock.patch(
+            "builtins.input", return_value=""
+        ):
+            bs = BottleSuite(
+                cfg_file=path, dashboard=True, jwt=False, sqlite=False,
+                sql=False, gen_res=False, gen_db=False,
+            )
+        self.assertIsNotNone(bs.jwt)
+        self.assertIsInstance(bs.cfg["jwt"], str)
+        self.assertTrue(any(r.rule == "/dashboard/token" for r in bs.routes))
+
+    def test_dashboardMissingBoth_interactive_accept_enablesBoth(self):
+        path = self._writeCfg("")
+        with mock.patch("sys.stdin.isatty", return_value=True), mock.patch(
+            "builtins.input", return_value="yes"
+        ):
+            bs = BottleSuite(
+                cfg_file=path, dashboard=True, jwt=False, rest=False,
+                sqlite=False, sql=False, gen_res=False, gen_db=False,
+            )
+        self.assertIsNotNone(bs.rest)
+        self.assertIsNotNone(bs.jwt)
+        self.assertIs(bs.cfg["rest"], True)
+        self.assertIsInstance(bs.cfg["jwt"], str)
+
+    def test_dashboardMissingDeps_interactive_decline_disablesDashboard(self):
+        with mock.patch("sys.stdin.isatty", return_value=True), mock.patch(
+            "builtins.input", return_value="n"
+        ):
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, dashboard=True, jwt=False, rest=False,
+                sqlite=False, sql=False, gen_res=False, gen_db=False,
+            )
+        self.assertIsNone(bs.dashboard_token)
+        self.assertFalse(any(r.rule.startswith("/dashboard") for r in bs.routes))
 
     # --- setupRest ---
     def test_setupRest_genTrue_noResourcesDir_noop(self):
@@ -1055,6 +1260,87 @@ class TestBottleSuite(unittest.TestCase):
         )
         bs.updateRoles("widgets", "get", True)
         self.assertEqual(bs.cfg["resources"]["widgets"]["roles"]["get"], True)
+
+    def test_updateRoles_bulkMethodList_appliesToAll(self):
+        path = self._writeCfg("")
+        bs = BottleSuite(
+            cfg_file=path, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        bs.updateRoles("widgets", ["put", "patch", "delete"], ["admin"])
+        roles = bs.cfg["resources"]["widgets"]["roles"]
+        self.assertEqual(roles["put"], ["admin"])
+        self.assertEqual(roles["patch"], ["admin"])
+        self.assertEqual(roles["delete"], ["admin"])
+
+    def test_updateRolesBulk_multipleResources_bothUpdated(self):
+        path = self._writeCfg("")
+        bs = BottleSuite(
+            cfg_file=path, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        bs.updateRolesBulk(
+            [
+                {"resource": "widgets", "method": "get", "roles": ["admin"]},
+                {"resource": "gadgets", "method": "post", "roles": True},
+            ]
+        )
+        self.assertEqual(bs.cfg["resources"]["widgets"]["roles"]["get"], ["admin"])
+        self.assertEqual(bs.cfg["resources"]["gadgets"]["roles"]["post"], True)
+
+    def test_updateRolesBulk_methodList_appliesToAll(self):
+        path = self._writeCfg("")
+        bs = BottleSuite(
+            cfg_file=path, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        bs.updateRolesBulk(
+            [{"resource": "widgets", "method": ["put", "patch"], "roles": ["admin"]}]
+        )
+        roles = bs.cfg["resources"]["widgets"]["roles"]
+        self.assertEqual(roles["put"], ["admin"])
+        self.assertEqual(roles["patch"], ["admin"])
+
+    def test_updateRolesBulk_savesAndReloadsExactlyOnce(self):
+        path = self._writeCfg("")
+        bs = BottleSuite(
+            cfg_file=path, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        with mock.patch.object(bs, "saveConfig") as save, mock.patch.object(
+            bs, "reloadServer"
+        ) as reload_:
+            bs.updateRolesBulk(
+                [
+                    {"resource": "widgets", "method": "get", "roles": True},
+                    {"resource": "gadgets", "method": "post", "roles": True},
+                    {"resource": "gizmos", "method": "delete", "roles": ["admin"]},
+                ]
+            )
+            save.assert_called_once()
+            reload_.assert_called_once()
+
+    def test_updateRolesBulk_emptyList_stillSavesOnceNoCrash(self):
+        path = self._writeCfg("")
+        bs = BottleSuite(
+            cfg_file=path, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        with mock.patch.object(bs, "saveConfig") as save, mock.patch.object(
+            bs, "reloadServer"
+        ) as reload_:
+            bs.updateRolesBulk([])
+            save.assert_called_once()
+            reload_.assert_called_once()
+
+    def test_updateRolesBulk_missingKey_raisesKeyError(self):
+        path = self._writeCfg("")
+        bs = BottleSuite(
+            cfg_file=path, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        with self.assertRaises(KeyError):
+            bs.updateRolesBulk([{"resource": "widgets", "roles": True}])
 
     def test_saveConfig_errorSwallowed_noRaise(self):
         # A directory path for cfg_file makes open(cfg_file, "w+") raise

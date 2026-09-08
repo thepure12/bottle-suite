@@ -6,24 +6,38 @@
       <template #header>
         <div class="flex items-center justify-between">
           <UTabs v-model="tab" :items="tabItems" />
-          <UButton
-            v-if="tab !== 'Roles'"
-            icon="i-lucide-circle-plus"
-            color="neutral"
-            variant="ghost"
-            aria-label="Add"
-            @click="openAdd"
-          />
+          <div class="flex items-center gap-2">
+            <UButton
+              v-if="tab === 'Roles' && selectedRoles.length > 1"
+              icon="i-lucide-pencil"
+              color="neutral"
+              variant="soft"
+              size="sm"
+              @click="openBulkEdit"
+            >
+              Edit {{ selectedRoles.length }} selected
+            </UButton>
+            <UButton
+              v-if="tab !== 'Roles'"
+              icon="i-lucide-circle-plus"
+              color="neutral"
+              variant="ghost"
+              aria-label="Add"
+              @click="openAdd"
+            />
+          </div>
         </div>
       </template>
 
       <ResourceDataTable
+        v-model:selected="selectedRoles"
         :items="currentItems"
         :loading="loadingResource"
         :column-keys="fallbackColumns"
         :hidden-columns="tab === 'Paths' ? ['index'] : []"
         :empty-message="emptyMessage"
         :show-delete="tab === 'Paths'"
+        :selectable="tab === 'Roles'"
         @edit="openEdit"
         @delete="openDelete"
         @refresh="reload"
@@ -39,6 +53,7 @@
       :datatypes="[]"
       :disabled-keys="disabledKeys"
       :role-options="roleOptions"
+      :bulk-methods="bulkMethods"
       :saving="savingItem"
       @save="onSave"
     />
@@ -61,6 +76,7 @@ const route = useRoute()
 const router = useRouter()
 const { showError, showSuccess } = useToastError()
 const { resource, fetchPythonResource, updateResourceAttr, removeResourceAttr } = usePythonResourcesStore()
+const { parsed: cfg, fetchConfig } = useConfigStore()
 
 const resourceName = computed(() => route.params.name as string)
 
@@ -76,6 +92,7 @@ async function reload() {
   loadingResource.value = true
   try {
     await fetchPythonResource(resourceName.value)
+    if (!Object.keys(cfg.value).length) await fetchConfig()
   } catch (e: any) {
     showError(e?.data?.message ?? 'Failed to load resource')
   } finally {
@@ -104,11 +121,16 @@ const emptyMessage = computed(() => `No ${tab.value.toLowerCase()} yet - add one
 
 const disabledKeys = computed(() => ['method'])
 
+const globalRoleNames = computed(() => (cfg.value.roles as { names?: string[] } | undefined)?.names ?? [])
+
 const roleOptions = computed(() => {
   const names = (resource.value?.roles ?? [])
     .flatMap(r => Array.isArray(r.roles) ? r.roles : [])
-  return [...new Set(names)]
+  return [...new Set([...names, ...globalRoleNames.value])]
 })
+
+const selectedRoles = ref<string[]>([])
+const bulkMethods = ref<string[]>([])
 
 const dialogOpen = ref(false)
 const isNew = ref(false)
@@ -129,7 +151,15 @@ function openAdd() {
 
 function openEdit(item: Record<string, any>) {
   isNew.value = false
+  bulkMethods.value = []
   editedItem.value = { ...item }
+  dialogOpen.value = true
+}
+
+function openBulkEdit() {
+  isNew.value = false
+  bulkMethods.value = [...selectedRoles.value]
+  editedItem.value = { method: '', roles: false }
   dialogOpen.value = true
 }
 
@@ -166,7 +196,11 @@ async function onSave(item: Record<string, any>) {
     if (tab.value === 'Paths') {
       await updateResourceAttr('paths', { index: item.index, path: item.path })
     } else if (tab.value === 'Roles') {
-      await updateResourceAttr('roles', { method: item.method, roles: item.roles })
+      await updateResourceAttr('roles', item.methods
+        ? { methods: item.methods, roles: item.roles }
+        : { method: item.method, roles: item.roles })
+      selectedRoles.value = []
+      bulkMethods.value = []
     }
     dialogOpen.value = false
     showSuccess('Saved')

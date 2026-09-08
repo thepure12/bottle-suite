@@ -6,18 +6,31 @@
       <template #header>
         <div class="flex items-center justify-between">
           <UTabs v-model="tab" :items="tabItems" />
-          <UButton
-            v-if="tab !== 'Roles'"
-            icon="i-lucide-circle-plus"
-            color="neutral"
-            variant="ghost"
-            aria-label="Add"
-            @click="openAdd"
-          />
+          <div class="flex items-center gap-2">
+            <UButton
+              v-if="tab === 'Roles' && selectedRoles.length > 1"
+              icon="i-lucide-pencil"
+              color="neutral"
+              variant="soft"
+              size="sm"
+              @click="openBulkEdit"
+            >
+              Edit {{ selectedRoles.length }} selected
+            </UButton>
+            <UButton
+              v-if="tab !== 'Roles'"
+              icon="i-lucide-circle-plus"
+              color="neutral"
+              variant="ghost"
+              aria-label="Add"
+              @click="openAdd"
+            />
+          </div>
         </div>
       </template>
 
       <ResourceDataTable
+        v-model:selected="selectedRoles"
         :items="currentItems"
         :loading="loadingResource"
         :column-keys="fallbackColumns"
@@ -25,6 +38,7 @@
         :empty-message="emptyMessage"
         :show-delete="showDelete"
         :can-delete="canDelete"
+        :selectable="tab === 'Roles'"
         @edit="openEdit"
         @delete="openDelete"
         @refresh="reload"
@@ -40,6 +54,7 @@
       :datatypes="datatypes"
       :disabled-keys="disabledKeys"
       :role-options="roleOptions"
+      :bulk-methods="bulkMethods"
       :saving="savingItem"
       @save="onSave"
     />
@@ -68,6 +83,7 @@ const {
   fetchResource, fetchDatatypes, fetchEntries,
   updateResourceAttr, removeResourceAttr, addEntry, updateEntry, deleteEntry,
 } = useResourcesStore()
+const { parsed: cfg, fetchConfig } = useConfigStore()
 
 const resourceId = computed(() => route.params.id as string)
 
@@ -83,7 +99,8 @@ async function reload() {
   loadingResource.value = true
   try {
     await fetchResource(resourceId.value)
-    await Promise.all([fetchDatatypes(), fetchEntries()])
+    const configPromise = Object.keys(cfg.value).length ? Promise.resolve() : fetchConfig()
+    await Promise.all([fetchDatatypes(), fetchEntries(), configPromise])
   } catch (e: any) {
     showError(e?.data?.message ?? 'Failed to load resource')
   } finally {
@@ -161,6 +178,7 @@ function openAdd() {
 
 function openEdit(item: Record<string, any>) {
   isNew.value = false
+  bulkMethods.value = []
   if (tab.value === 'Entries') {
     editedIndex.value = entries.value.indexOf(item)
   } else if (tab.value === 'Fields') {
@@ -208,11 +226,23 @@ async function confirmDelete() {
   }
 }
 
+const globalRoleNames = computed(() => (cfg.value.roles as { names?: string[] } | undefined)?.names ?? [])
+
 const roleOptions = computed(() => {
   const names = (resource.value?.roles ?? [])
     .flatMap(r => Array.isArray(r.roles) ? r.roles : [])
-  return [...new Set(names)]
+  return [...new Set([...names, ...globalRoleNames.value])]
 })
+
+const selectedRoles = ref<string[]>([])
+const bulkMethods = ref<string[]>([])
+
+function openBulkEdit() {
+  isNew.value = false
+  bulkMethods.value = [...selectedRoles.value]
+  editedItem.value = { method: '', roles: false }
+  dialogOpen.value = true
+}
 
 async function onSave(item: Record<string, any>) {
   savingItem.value = true
@@ -229,7 +259,11 @@ async function onSave(item: Record<string, any>) {
     } else if (tab.value === 'Paths') {
       await updateResourceAttr('paths', { index: item.index, path: item.path })
     } else if (tab.value === 'Roles') {
-      await updateResourceAttr('roles', { method: item.method, roles: item.roles })
+      await updateResourceAttr('roles', item.methods
+        ? { methods: item.methods, roles: item.roles }
+        : { method: item.method, roles: item.roles })
+      selectedRoles.value = []
+      bulkMethods.value = []
     } else if (tab.value === 'Entries') {
       if (isNew.value) await addEntry(item)
       else await updateEntry(item, editedIndex.value)

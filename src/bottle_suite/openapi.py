@@ -20,6 +20,7 @@ EXCLUDED_PREFIXES = (
     "/_datatypes",
     "/bottle_suite_cfg",
     "/_python_resources",
+    "/_roles",
 )
 AUTH_RULES = {"/token", "/users/current"}
 
