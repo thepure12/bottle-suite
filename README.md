@@ -134,3 +134,53 @@ references N levels deep - e.g. `GET /widgets/1?levels=2` replaces a
 Per-table role gating and custom paths are configured under
 `[resources.<table>]` in `bottle_suite.toml`. See `example/` for a full
 working demo (`example/bottle_suite.toml`, `example/README.md`).
+
+### API Prefix
+Set `api_prefix` (constructor kwarg or top-level `bottle_suite.toml` key,
+e.g. `api_prefix = "/api"`) to prepend a fixed prefix to every route
+BottleSuite registers as part of your project's own API — hand-authored
+resources, auto-generated database resources, and the JWT `/token`/
+`/users/current` endpoints. This is useful when something else (a
+static-site resource, a frontend build) needs to own the unprefixed
+paths. Bottle Suite's own dashboard and meta/admin routes (`/dashboard`,
+`/openapi.json`, `/_resources`, etc.) are never affected by `api_prefix`.
+
+An individual `Resource` subclass can opt out of the global prefix (or use
+a different one) by setting its own `api_prefix` class attribute:
+
+```python
+from bottle_suite import Resource
+
+class ResourceA(Resource):
+    api_prefix = ""  # always unprefixed, even if the app sets api_prefix
+
+    def get(self):
+        return {}
+```
+
+A resource with an `api_prefix` override — e.g. a root-mounted catch-all like `/<path:path>` serving a
+static SPA build — is always registered *after* every default-prefixed route (hand-authored, built-in,
+and auto-generated DB resources), so it can never shadow a real API route no matter what order its
+module happens to load in.
+
+### Custom Setup Hooks
+If a project defines a top-level `hooks.py` with a callable `configure(app)`,
+`BottleSuite` calls it automatically at the very end of `__init__` — after
+every resource, DB table, and built-in route (including `/openapi.json`) is
+already registered. This is the place to add anything `BottleSuite` doesn't
+already cover: extra routes, additional Bottle plugins, middleware, or
+overriding a route `BottleSuite` itself just set up.
+
+#### hooks.py
+```python
+def configure(app):
+    @app.route("/healthz")
+    def healthz():
+        return {"status": "ok"}
+```
+
+Disable auto-discovery with `gen_hooks=False` (constructor-only, not
+`bottle_suite.toml`-configurable). This works the same way whether the app
+is started via the `bottle-suite` CLI, a hand-rolled `app.py`, or a WSGI
+deploy — `hooks.py` just needs to sit at the process's working directory
+when `BottleSuite()` is constructed.

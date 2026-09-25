@@ -70,11 +70,13 @@ class BottleSuite(Bottle):
         cors: Union[bool, dict] = True,
         rest: bool = True,
         jwt: Union[bool, str, dict] = True,
+        api_prefix: str = "",
         sqlite: Union[bool, str, dict] = False,
         sql: Union[bool, str, dict] = False,
         gen_db: bool = True,
         gen_res: bool = True,
         gen_auth: bool = True,
+        gen_hooks: bool = True,
         cfg_file: str = "bottle_suite.toml",
         dashboard: bool = False,
         openapi: Union[bool, dict] = True,
@@ -116,6 +118,18 @@ class BottleSuite(Bottle):
             sql = self.cfg["sql"]
         if "openapi" in self.cfg:
             openapi = self.cfg["openapi"]
+        if "api_prefix" in self.cfg:
+            api_prefix = self.cfg["api_prefix"]
+        api_prefix = (api_prefix or "").strip().strip("/")
+        self.api_prefix = f"/{api_prefix}" if api_prefix else ""
+        # Resources that override api_prefix (e.g. a root-mounted SPA/static-
+        # file resource opting out via api_prefix="") are registered last,
+        # after every default-prefixed route -- hand-authored, meta, and
+        # DB auto-CRUD -- so a catch-all route like /<path:path> can never
+        # shadow a real, more-specific API route based on registration order
+        # (Bottle's router matches dynamic routes in registration order,
+        # first match wins, not most-specific-match).
+        self._deferred_resources = []
         dashboard, rest, jwt = self.checkDashboardRequirements(dashboard, rest, jwt)
         self.setupCors(cors)
         if sql and sqlite:
@@ -130,7 +144,12 @@ class BottleSuite(Bottle):
         self.setupRest(rest, gen_res)
         if gen_db and (sql or sqlite):
             self.createResForDB()
+        self._registerDeferredResources()
         self.setupOpenApi(openapi)
+        # Runs last, after every route above is registered, so hooks.py's
+        # configure(app) can freely add routes/plugins/middleware or
+        # override anything BottleSuite itself just set up.
+        self.setupHooks(gen_hooks)
 
     @property
     def resource_names(self):
@@ -138,6 +157,15 @@ class BottleSuite(Bottle):
             return set([r.name for r in self.rest.resources])
         except:
             return set()
+
+    def apiPath(self, path: str, prefix=None) -> str:
+        """Prepend api_prefix (or an explicit per-resource override) to a
+        route rule. `prefix=None` means "use self.api_prefix"; a Resource
+        subclass can pass its own `api_prefix` class attribute (including
+        "" to opt out of the global prefix entirely, e.g. a root-mounted
+        SPA/static-file resource)."""
+        prefix = self.api_prefix if prefix is None else prefix
+        return f"{prefix}{path}" if prefix else path
 
     def checkDashboardRequirements(self, dashboard, rest, jwt):
         if isinstance(dashboard, dict):
@@ -309,13 +337,24 @@ class BottleSuite(Bottle):
                 cfg = jwt
             self.jwt = JWTPlugin(**cfg)
             self.install(self.jwt)
-            # Create default token callbacks
-            for path, callback in self.jwt.token_paths.items():
-                self.route("/" + path, "GET", callback)
-                self.route("/" + path, "POST", callback)
-                self.route("/" + path, "OPTIONS", callback)
+            # Create default token callbacks. JWTPlugin.apply() looks up the
+            # request's token path by flattening route.rule ("/" stripped),
+            # so if api_prefix moves "/token" to e.g. "/api/token", the
+            # token_paths dict key has to be rekeyed to "apitoken" to match,
+            # or the endpoint silently stops issuing tokens.
+            for path, callback in list(self.jwt.token_paths.items()):
+                rule = self.apiPath("/" + path)
+                key = rule.replace("/", "")
+                if key != path:
+                    self.jwt.token_paths[key] = self.jwt.token_paths.pop(path)
+                self._default_token_key = key
+                self.route(rule, "GET", callback)
+                self.route(rule, "POST", callback)
+                self.route(rule, "OPTIONS", callback)
                 self.route(
-                    "/users/current", ["OPTIONS", "GET"], lambda: {"user": "default"}
+                    self.apiPath("/users/current"),
+                    ["OPTIONS", "GET"],
+                    lambda: {"user": "default"},
                 )
         else:
             self.jwt = None
@@ -347,9 +386,15 @@ class BottleSuite(Bottle):
         else:
             self.sqlite = None
 
-    def setTokenAuthFunction(self, func=None, token_path="token"):
+    def setTokenAuthFunction(self, func=None, token_path=None):
         if not func:
             func = authFunc
+        if token_path is None:
+            # Match whatever key setupJwt() actually rekeyed the default
+            # token path to (e.g. "apitoken" when api_prefix is set) rather
+            # than a bare "token" literal, or this would silently create a
+            # second, unroutable dict entry instead of replacing the real one.
+            token_path = getattr(self, "_default_token_key", "token") or "token"
         self.jwt.token_paths[token_path] = func
 
     def setupAuth(self, gen: bool):
@@ -375,6 +420,30 @@ class BottleSuite(Bottle):
             print("auth.py found but has no callable 'authenticate' -- skipping")
             return
         self.setTokenAuthFunction(func)
+
+    def setupHooks(self, gen: bool):
+        if not (gen and os.path.exists(os.path.join(os.getcwd(), "hooks.py"))):
+            return
+        # Same temp-sys.path/sys.modules dance as setupAuth/importResourcesDir,
+        # scaled down to a single top-level module, so repeated BottleSuite()
+        # construction against different project dirs in the same process
+        # never serves a stale cached hooks module.
+        project_root = os.getcwd()
+        path_added = project_root not in sys.path
+        if path_added:
+            sys.path.insert(0, project_root)
+        try:
+            module = importlib.import_module("hooks")
+        finally:
+            if "hooks" in sys.modules:
+                del sys.modules["hooks"]
+            if path_added:
+                sys.path.remove(project_root)
+        func = getattr(module, "configure", None)
+        if not callable(func):
+            print("hooks.py found but has no callable 'configure' -- skipping")
+            return
+        func(self)
 
     def importResourcesDir(self):
         # Load resources/ as a real (namespace) package rather than
@@ -415,8 +484,20 @@ class BottleSuite(Bottle):
                 paths = self.cfg["resources"][module_name]["paths"]
             except:
                 paths = [f"/{module_name}"]
+            paths = [self.apiPath(p, prefix=resource.api_prefix) for p in paths]
             self.setRoles(resource, module_name)
-            self.rest.addResource(cls[1], *paths)
+            if resource.api_prefix is not None:
+                # An explicit per-resource override -- defer to
+                # _registerDeferredResources() so it can never shadow a
+                # default-prefixed dynamic route based on os.listdir()'s
+                # unspecified ordering (see api_prefix's design notes above).
+                self._deferred_resources.append((cls[1], paths))
+            else:
+                self.rest.addResource(cls[1], *paths)
+
+    def _registerDeferredResources(self):
+        for resource, paths in self._deferred_resources:
+            self.rest.addResource(resource, *paths)
 
     def setRoles(self, resource, name):
         for meth in resource.Methods:
@@ -455,18 +536,22 @@ class BottleSuite(Bottle):
             resource = resource_factory.createResource(table, fields, self.sql)
             self.setRoles(resource, table)
             endpoints = []
-            if f"/{table}" not in rules:
-                endpoints = [f"/{table}"]
-            if resource.key and f"/{table}/<key>" not in rules:
-                endpoints.append(f"/{table}/<key>")
+            base_path = self.apiPath(f"/{table}")
+            if base_path not in rules:
+                endpoints = [base_path]
+            keyed_path = self.apiPath(f"/{table}/<key>")
+            if resource.key and keyed_path not in rules:
+                endpoints.append(keyed_path)
             # Generic nested-ref route: resource_factory's get() resolves
             # the actual FK relationship (if any) at request time via
             # getRefs, so this single rule covers every table without
             # needing a per-relationship route generated ahead of time.
-            if f"/<ref_table>/<ref_id>/{table}" not in rules:
-                endpoints.append(f"/<ref_table>/<ref_id>/{table}")
+            nested_path = self.apiPath(f"/<ref_table>/<ref_id>/{table}")
+            if nested_path not in rules:
+                endpoints.append(nested_path)
             try:
                 for path in self.cfg["resources"][table]["paths"]:
+                    path = self.apiPath(path)
                     if path not in rules:
                         endpoints.append(path)
             except KeyError:

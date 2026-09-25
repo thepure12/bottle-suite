@@ -107,16 +107,23 @@ class TestBuildSpecHelpers(unittest.TestCase):
         self.assertEqual(openapi._pathParams("/animals"), [])
 
     def test_tag_authRuleWinsOverResource(self):
+        auth_rules = {"/token", "/users/current"}
         fake_resource = types.SimpleNamespace(name="DashboardToken")
-        self.assertEqual(openapi._tag(fake_resource, "/token"), "Auth")
-        self.assertEqual(openapi._tag(None, "/users/current"), "Auth")
+        self.assertEqual(openapi._tag(fake_resource, "/token", auth_rules), "Auth")
+        self.assertEqual(openapi._tag(None, "/users/current", auth_rules), "Auth")
 
     def test_tag_resourceName(self):
         resource = types.SimpleNamespace(name="Widgets")
-        self.assertEqual(openapi._tag(resource, "/widgets"), "Widgets")
+        self.assertEqual(openapi._tag(resource, "/widgets", set()), "Widgets")
 
     def test_tag_defaultFallback(self):
-        self.assertEqual(openapi._tag(None, "/plain"), "default")
+        self.assertEqual(openapi._tag(None, "/plain", set()), "default")
+
+    def test_tag_authRules_respectsApiPrefix(self):
+        fake_resource = types.SimpleNamespace(name="DashboardToken")
+        auth_rules = {"/api/token", "/api/users/current"}
+        self.assertEqual(openapi._tag(fake_resource, "/api/token", auth_rules), "Auth")
+        self.assertEqual(openapi._tag(fake_resource, "/token", auth_rules), "DashboardToken")
 
     def test_tableSchemaRef_requiredFieldDetection_andCaching(self):
         resource = types.SimpleNamespace(name="Widgets", table="widgets")

@@ -244,6 +244,87 @@ class TestBottleSuite(unittest.TestCase):
         bs.setTokenAuthFunction(custom)
         self.assertIs(bs.jwt.token_paths["token"], custom)
 
+    # --- api_prefix / apiPath ---
+    def test_apiPath_defaultNoPrefix_returnsPathUnchanged(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        self.assertEqual(bs.api_prefix, "")
+        self.assertEqual(bs.apiPath("/reports"), "/reports")
+
+    def test_apiPath_globalPrefix_prepended(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt=False,
+            sqlite=False, sql=False, gen_res=False, gen_db=False,
+        )
+        self.assertEqual(bs.apiPath("/reports"), "/api/reports")
+
+    def test_apiPath_explicitEmptyOverride_bypassesGlobalPrefix(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt=False,
+            sqlite=False, sql=False, gen_res=False, gen_db=False,
+        )
+        self.assertEqual(bs.apiPath("/", prefix=""), "/")
+
+    def test_apiPath_normalizesSurroundingSlashesAndWhitespace(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, api_prefix=" /api/ ", jwt=False,
+            sqlite=False, sql=False, gen_res=False, gen_db=False,
+        )
+        self.assertEqual(bs.api_prefix, "/api")
+
+    def test_apiPath_emptyStringPrefix_normalizesToOff(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, api_prefix="", jwt=False,
+            sqlite=False, sql=False, gen_res=False, gen_db=False,
+        )
+        self.assertEqual(bs.api_prefix, "")
+
+    def test_configPrecedence_apiPrefix_tomlOverridesCtor(self):
+        path = self._writeCfg('api_prefix = "/api"\n')
+        bs = BottleSuite(
+            cfg_file=path, api_prefix="", jwt=False, sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        self.assertEqual(bs.api_prefix, "/api")
+
+    def test_setupJwt_apiPrefix_rekeysTokenPathAndRoutesUnderPrefix(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt="k",
+            sqlite=False, sql=False, gen_res=False, gen_db=False,
+        )
+        self.assertNotIn("token", bs.jwt.token_paths)
+        self.assertIn("apitoken", bs.jwt.token_paths)
+        app = webtest.TestApp(bs)
+        resp = app.post_json("/api/token", {})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("token", resp.json)
+        self.assertEqual(app.get("/token", expect_errors=True).status_code, 404)
+        self.assertEqual(
+            app.get("/api/users/current").json, {"user": "default"}
+        )
+
+    def test_setTokenAuthFunction_explicitTokenPath_bypassesDefaultLookup(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
+            gen_res=False, gen_db=False,
+        )
+        custom = lambda: {"exp": 123}
+        bs.setTokenAuthFunction(custom, token_path="othertoken")
+        self.assertIs(bs.jwt.token_paths["othertoken"], custom)
+        self.assertIn("token", bs.jwt.token_paths)
+
+    def test_setTokenAuthFunction_apiPrefix_defaultsToRekeyedPath(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt="k",
+            sqlite=False, sql=False, gen_res=False, gen_db=False,
+        )
+        custom = lambda: {"exp": 123}
+        bs.setTokenAuthFunction(custom)
+        self.assertIs(bs.jwt.token_paths["apitoken"], custom)
+        self.assertNotIn("token", bs.jwt.token_paths)
+
     # --- setupAuth: auth.py:authenticate auto-discovery ---
     def _writeAuthPy(self, tmp, body="def authenticate(**kwargs):\n    return {'user': 'x'}\n"):
         with open(os.path.join(tmp, "auth.py"), "w") as f:
@@ -419,6 +500,164 @@ class TestBottleSuite(unittest.TestCase):
                     gen_res=False, gen_db=False,
                 )
             self.assertNotIn("auth", sys.modules)
+            self.assertNotIn(tmp, sys.path)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    # --- setupHooks: hooks.py:configure auto-discovery ---
+    def _writeHooksPy(self, tmp, body="def configure(app):\n    app.hook_ran = True\n"):
+        with open(os.path.join(tmp, "hooks.py"), "w") as f:
+            f.write(body)
+
+    def test_setupHooks_hooksPyPresent_wiresUp(self):
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeHooksPy(tmp)
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertTrue(bs.hook_ran)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupHooks_noHooksPy_noop(self):
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertFalse(hasattr(bs, "hook_ran"))
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupHooks_genHooksFalse_noop(self):
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeHooksPy(tmp)
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                gen_res=False, gen_db=False, gen_hooks=False,
+            )
+            self.assertFalse(hasattr(bs, "hook_ran"))
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupHooks_missingConfigureAttr_warnsAndSkips(self):
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeHooksPy(tmp, body="x = 1\n")
+            with mock.patch("builtins.print") as mock_print:
+                bs = BottleSuite(
+                    cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                    gen_res=False, gen_db=False,
+                )
+            self.assertFalse(hasattr(bs, "hook_ran"))
+            self.assertTrue(
+                any("configure" in str(c.args) for c in mock_print.call_args_list)
+            )
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupHooks_configureNotCallable_warnsAndSkips(self):
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeHooksPy(tmp, body="configure = 'not callable'\n")
+            bs = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertFalse(hasattr(bs, "hook_ran"))
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupHooks_repeatedConstructionAcrossProjects_noStaleModule(self):
+        cwd = os.getcwd()
+        tmp1 = tempfile.mkdtemp()
+        tmp2 = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp1)
+            self._writeHooksPy(
+                tmp1, body="def configure(app):\n    app.hook_ran = 'one'\n"
+            )
+            bs1 = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertEqual(bs1.hook_ran, "one")
+            self.assertNotIn("hooks", sys.modules)
+
+            os.chdir(tmp2)
+            self._writeHooksPy(
+                tmp2, body="def configure(app):\n    app.hook_ran = 'two'\n"
+            )
+            bs2 = BottleSuite(
+                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                gen_res=False, gen_db=False,
+            )
+            self.assertEqual(bs2.hook_ran, "two")
+            self.assertNotIn("hooks", sys.modules)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp1)
+            shutil.rmtree(tmp2)
+
+    def test_setupHooks_projectRootAlreadyOnSysPath_notRemoved(self):
+        # When project_root is already on sys.path (e.g. left there by
+        # something else), setupHooks must neither re-add nor remove it --
+        # only clean up what it itself added.
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeHooksPy(tmp)
+            sys.path.insert(0, tmp)
+            try:
+                bs = BottleSuite(
+                    cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                    gen_res=False, gen_db=False,
+                )
+                self.assertTrue(bs.hook_ran)
+                self.assertIn(tmp, sys.path)
+            finally:
+                sys.path.remove(tmp)
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(tmp)
+
+    def test_setupHooks_hooksPyBroken_raisesAndSkipsModuleCleanup(self):
+        # A syntax error in hooks.py means import_module() never adds
+        # "hooks" to sys.modules -- the cleanup's "if 'hooks' in
+        # sys.modules" guard must not choke on that, and the original
+        # exception must propagate.
+        cwd = os.getcwd()
+        tmp = tempfile.mkdtemp()
+        try:
+            os.chdir(tmp)
+            self._writeHooksPy(tmp, body="def configure(:\n    pass\n")
+            with self.assertRaises(SyntaxError):
+                BottleSuite(
+                    cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                    gen_res=False, gen_db=False,
+                )
+            self.assertNotIn("hooks", sys.modules)
             self.assertNotIn(tmp, sys.path)
         finally:
             os.chdir(cwd)
@@ -722,6 +961,57 @@ class TestBottleSuite(unittest.TestCase):
             if was_present:
                 sys.path.insert(0, cwd)
 
+    def test_importResourcesDir_globalApiPrefix_prependsResourceRoutes(self):
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt=False,
+            sqlite=False, sql=False, gen_res=True, gen_db=False,
+        )
+        app = webtest.TestApp(bs)
+        self.assertEqual(app.get("/api/file_resource").status_code, 200)
+        self.assertEqual(
+            app.get("/file_resource", expect_errors=True).status_code, 404
+        )
+
+    def test_importResourcesDir_resourceApiPrefixOverride_bypassesGlobalPrefix(self):
+        # tests/resources/api_prefix_override_resource.py sets api_prefix =
+        # "" as a class attribute -- it must stay unprefixed even when the
+        # app's own global api_prefix is set, the way a root-mounted SPA/
+        # static-file resource needs to.
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt=False,
+            sqlite=False, sql=False, gen_res=True, gen_db=False,
+        )
+        app = webtest.TestApp(bs)
+        self.assertEqual(app.get("/api_prefix_override_resource").status_code, 200)
+        self.assertEqual(
+            app.get("/api/api_prefix_override_resource", expect_errors=True).status_code,
+            404,
+        )
+
+    def test_deferredResource_catchAll_doesNotShadowDbAutoCrudRoute(self):
+        # Regression: server/resources/spa.py-style catch-all (api_prefix="")
+        # must never shadow a real, default-prefixed dynamic route (e.g. a DB
+        # auto-CRUD /<table>/<key>), regardless of Bottle's first-match-wins
+        # dynamic-route registration order and os.listdir()'s unspecified
+        # ordering of tests/resources/*.py.
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        path = self._writeCfg(
+            '[resources.catchall_override_resource]\npaths = ["/", "/<path:path>"]\n'
+        )
+        bs = BottleSuite(
+            cfg_file=path, api_prefix="/api", sqlite=tmp_db, jwt=False,
+            gen_res=True, gen_db=True,
+        )
+        app = webtest.TestApp(bs)
+        resp = app.get("/api/animals/1")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json["name"], "dog")
+        # Sanity: the catch-all itself still works for genuinely unclaimed paths.
+        self.assertEqual(
+            app.get("/anything-else").json["caught_by"], "catchall_override_resource"
+        )
+
     def test_setupRest_genTrue_leavesPreexistingSysPathEntry(self):
         cwd = os.getcwd()
         was_present = cwd in sys.path
@@ -782,6 +1072,18 @@ class TestBottleSuite(unittest.TestCase):
         )
         bs.createResForDB()
         self.assertNotIn("Nokey", bs.resource_names)
+
+    def test_createResForDB_apiPrefix_prependsGeneratedRoutes(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, api_prefix="/api", sqlite=tmp_db,
+            jwt=False, gen_res=False, gen_db=True,
+        )
+        app = webtest.TestApp(bs)
+        self.assertEqual(app.get("/api/animals").status_code, 200)
+        self.assertEqual(app.get("/api/animals/1").status_code, 200)
+        self.assertEqual(app.get("/animals", expect_errors=True).status_code, 404)
 
     def test_createResForDB_multipleExtraPaths_allAdded(self):
         # Exercises the extra-paths for-loop iterating more than once, both

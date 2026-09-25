@@ -22,7 +22,6 @@ EXCLUDED_PREFIXES = (
     "/_python_resources",
     "/_roles",
 )
-AUTH_RULES = {"/token", "/users/current"}
 
 DEFAULT_SCHEMA = {"type": "string"}
 SQL_TYPE_MAP = {
@@ -89,8 +88,8 @@ def _operationId(method: str, rule: str) -> str:
     return f"{method.lower()}_{slug}"
 
 
-def _tag(resource, rule: str) -> str:
-    if rule in AUTH_RULES:
+def _tag(resource, rule: str, auth_rules: set) -> str:
+    if rule in auth_rules:
         return "Auth"
     if resource is not None:
         return resource.name
@@ -200,6 +199,7 @@ def buildSpec(app: "BottleSuite") -> dict:
     schemas = {}
     paths = {}
     has_bearer = False
+    auth_rules = {app.apiPath("/token"), app.apiPath("/users/current")}
     for route in app.routes:
         rule = route.rule
         method = route.method
@@ -219,7 +219,7 @@ def buildSpec(app: "BottleSuite") -> dict:
             skip = {"db"} | path_param_names
             operation = _plainOperation(method, route.callback, skip)
 
-        operation["tags"] = [_tag(resource, rule)]
+        operation["tags"] = [_tag(resource, rule, auth_rules)]
         operation["operationId"] = _operationId(method, rule)
         if path_params:
             operation["parameters"] = path_params

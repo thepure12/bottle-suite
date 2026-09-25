@@ -16,6 +16,7 @@ class Resource(object):
 
     _name = ""
     rules = []
+    api_prefix = None  # None -> inherit the app's global api_prefix; a str overrides it
 
     @property
     def params(self):
