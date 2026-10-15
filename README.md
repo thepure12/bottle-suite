@@ -163,6 +163,65 @@ static SPA build — is always registered *after* every default-prefixed route (
 and auto-generated DB resources), so it can never shadow a real API route no matter what order its
 module happens to load in.
 
+### Default Roles
+Hand-authored and auto-generated database resources are open unless they
+set `roles`. Set `default_roles` (constructor kwarg or top-level
+`bottle_suite.toml` key) to protect all of them at once:
+
+```toml
+default_roles = true                  # any valid token
+# default_roles = ["admin", "finance"]  # token must hold at least one role
+```
+
+A list can also be given as a comma-separated string (`"admin,finance"`).
+The default applies only to methods that declare no roles of their own.
+Roles set on the resource class, or under `[resources.<name>.roles]`, win.
+An explicit `false` opts a method out, for example a public static-site
+resource:
+
+```toml
+[resources.spa.roles]
+get = false
+```
+
+`OPTIONS` never gets the default, so CORS preflight still works. The
+built-in meta routes (`/_resources`, `/_roles`, ...) keep their own
+`roles = true` and ignore `default_roles`. The JWT `/token` route is
+unaffected.
+
+### Mounting Packages
+One app can serve several installed packages, each under its own URL prefix
+and each with its own database. List them under `mounts` in
+`bottle_suite.toml`:
+
+```toml
+jwt = "..."
+api_prefix = "api"
+
+[mounts]
+trax = "trax_connector"        # short form: config folder = "trax"
+
+[mounts.bri]
+package = "bri_connector"      # importable package with a resources/ subpackage
+base_dir = "connectors/bri"    # its config folder (default: the mount name)
+```
+
+Each mount is a child `BottleSuite` built from `<package>.resources` (not
+`./resources`), served at `<api_prefix>/<name>/`. Its own
+`<base_dir>/bottle_suite.toml` sets its `sql`/`sqlite`, `resources.*` paths
+and roles, and `default_roles`; DB auto-CRUD works per mount. The child always
+takes `jwt`, `cors`, `rest`, `dashboard`, `openapi` and `api_prefix` from the
+parent (its own values for those are ignored), so one token works everywhere
+and only the parent's `/token` issues one. A mount without its own
+`default_roles` inherits the parent's.
+
+The package's `__init__.py` may define `configure(app)`. It runs last, like
+`hooks.py`, and `app.base_dir` is the mount's config folder. Packages never
+get an `auth.py` or `hooks.py` from the working directory.
+
+A package can also run on its own (e.g. in its own repo for development):
+`BottleSuite(package="bri_connector", base_dir="config")`.
+
 ### Custom Setup Hooks
 If a project defines a top-level `hooks.py` with a callable `configure(app)`,
 `BottleSuite` calls it automatically at the very end of `__init__` — after

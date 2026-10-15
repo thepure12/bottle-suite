@@ -250,26 +250,81 @@ class TestCreateResourceDirect(unittest.TestCase):
         with self.assertRaises(TypeError):
             resource_factory.createResource("NoKey", fields)
 
-    def test_createFunction_generatedSignatures(self):
-        fields = [
-            {"name": "id", "type": "INTEGER", "notnull": True, "default": None, "key": 1},
-            {"name": "name", "type": "TEXT", "notnull": False, "default": None, "key": 0},
-        ]
-        Resource = resource_factory.createResource("things", fields)
+    THINGS_FIELDS = [
+        {"name": "id", "type": "INTEGER", "notnull": True, "default": None, "key": 1},
+        {"name": "name", "type": "TEXT", "notnull": False, "default": None, "key": 0},
+    ]
+
+    def _stubDo(self, Resource):
+        # Replace the _do* SQL layer with recorders so the generated
+        # post/put/patch wrappers' own argument handling is tested in
+        # isolation.
+        calls = {}
+        for meth in ("Post", "Put", "Patch"):
+            def rec(self, db, _m=meth, **kw):
+                calls[_m] = kw
+                return kw
+            setattr(Resource, f"_do{meth}", rec)
+        Resource.createFunction("post", "name", **{"id": None})
+        Resource.createFunction("put", "id", "name", key_param="id")
+        Resource.createFunction(
+            "patch", "id", key_param="id", **{"name": PatchData.UNCHANGED}
+        )
+        return calls
+
+    def test_createFunction_signatures_onlyDbAndUrlKey(self):
+        # Fields travel through **fields (column names needn't be valid
+        # Python identifiers); put/patch additionally take the "<key>" URL
+        # param, which the REST plugin requires be present.
+        Resource = resource_factory.createResource("things", self.THINGS_FIELDS)
         post_params = inspect.signature(Resource.post).parameters
-        self.assertEqual(list(post_params), ["self", "db", "name", "id"])
-        self.assertIsNone(post_params["id"].default)
+        self.assertEqual(list(post_params), ["self", "db", "fields"])
+        for meth in (Resource.put, Resource.patch):
+            self.assertEqual(
+                list(inspect.signature(meth).parameters), ["self", "db", "key", "fields"]
+            )
 
-        # put/patch expose the identity param as "key" (matching the
-        # "/<table>/<key>" route), not the real column name "id" --
-        # createFunction's key_param mechanism renames it in the outer
-        # signature while still passing it through as "id" internally.
-        patch_params = inspect.signature(Resource.patch).parameters
-        self.assertEqual(list(patch_params), ["self", "db", "key", "name"])
-        self.assertIs(patch_params["name"].default, PatchData.UNCHANGED)
+    def test_createFunction_post_defaultsKeyToNone(self):
+        Resource = resource_factory.createResource("things", self.THINGS_FIELDS)
+        calls = self._stubDo(Resource)
+        Resource().post(None, name="a")
+        self.assertEqual(calls["Post"], {"name": "a", "id": None})
 
-        put_params = inspect.signature(Resource.put).parameters
-        self.assertEqual(list(put_params), ["self", "db", "key", "name"])
+    def test_createFunction_post_missingRequired_400(self):
+        Resource = resource_factory.createResource("things", self.THINGS_FIELDS)
+        calls = self._stubDo(Resource)
+        result = Resource().post(None)
+        self.assertEqual(bottle.response.status_code, 400)
+        self.assertEqual(result, {"name": "This field is required"})
+        self.assertNotIn("Post", calls)
+
+    def test_createFunction_unknownField_400(self):
+        Resource = resource_factory.createResource("things", self.THINGS_FIELDS)
+        calls = self._stubDo(Resource)
+        result = Resource().post(None, name="a", bogus=1)
+        self.assertEqual(bottle.response.status_code, 400)
+        self.assertIn("bogus", result["message"])
+        self.assertNotIn("Post", calls)
+
+    def test_createFunction_patch_mapsKeyAndDefaultsUnchanged(self):
+        Resource = resource_factory.createResource("things", self.THINGS_FIELDS)
+        calls = self._stubDo(Resource)
+        Resource().patch(None, key=3)
+        self.assertEqual(calls["Patch"], {"id": 3, "name": PatchData.UNCHANGED})
+
+    def test_createFunction_put_keyNotFirstInSchema_mapsByName(self):
+        # PK declared last in the schema -- put's "key" param must still map
+        # to the real column name by lookup, not by position.
+        fields = [
+            {"name": "name", "type": "TEXT", "notnull": False, "default": None, "key": 0},
+            {"name": "id", "type": "INTEGER", "notnull": True, "default": None, "key": 1},
+        ]
+        Resource = resource_factory.createResource("things2", fields)
+        calls = {}
+        Resource._doPut = lambda self, db, **kw: calls.setdefault("Put", kw)
+        Resource.createFunction("put", "name", "id", key_param="id")
+        Resource().put(None, key=7, name="x")
+        self.assertEqual(calls["Put"], {"name": "x", "id": 7})
 
     def test_createFunction_noPositionalArgs_keyOnlyTable(self):
         # A table with only the PK field has no non-key columns, so
@@ -278,19 +333,61 @@ class TestCreateResourceDirect(unittest.TestCase):
             {"name": "id", "type": "INTEGER", "notnull": True, "default": None, "key": 1},
         ]
         Resource = resource_factory.createResource("onlykey", fields)
-        post_params = inspect.signature(Resource.post).parameters
-        self.assertEqual(list(post_params), ["self", "db", "id"])
+        calls = {}
+        Resource._doPost = lambda self, db, **kw: calls.setdefault("Post", kw)
+        Resource.createFunction("post", **{"id": None})
+        Resource().post(None)
+        self.assertEqual(calls["Post"], {"id": None})
 
-    def test_createFunction_putSignature_keyNotFirstInSchema(self):
-        # PK declared last in the schema -- put's outer "key" param must
-        # still map to the real column name by lookup, not by position.
-        fields = [
-            {"name": "name", "type": "TEXT", "notnull": False, "default": None, "key": 0},
-            {"name": "id", "type": "INTEGER", "notnull": True, "default": None, "key": 1},
-        ]
-        Resource = resource_factory.createResource("things2", fields)
-        put_params = inspect.signature(Resource.put).parameters
-        self.assertEqual(list(put_params), ["self", "db", "name", "key"])
+
+class TestResourceFactoryNonIdentifierColumns(unittest.TestCase):
+    """Regression: columns like "401k_amount" (not valid Python identifiers)
+    used to crash resource generation with "SyntaxError: invalid decimal
+    literal" because createFunction exec'd them as parameter names."""
+
+    def setUp(self):
+        self.tmp_db = db_fixtures.temp_sqlite_copy()
+        conn = sqlite3.connect(self.tmp_db)
+        conn.execute(
+            "CREATE TABLE `401k_items` (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " `401k_amount` REAL, `from` TEXT)"
+        )
+        conn.commit()
+        conn.close()
+        self.bs = BottleSuite(
+            cfg_file=NONEXISTENT_CFG, rest=True, jwt=False, sqlite=self.tmp_db,
+            sql=False, gen_res=False, gen_db=True,
+        )
+        self.app = webtest.TestApp(self.bs)
+
+    def tearDown(self):
+        os.remove(self.tmp_db)
+
+    def test_crud_roundTrip(self):
+        created = self.app.post_json("/401k_items", {"401k_amount": 12.5, "from": "a"})
+        self.assertEqual(created.status_code, 201)
+        row_id = created.json["id"]
+        self.assertEqual(created.json["401k_amount"], 12.5)
+
+        resp = self.app.get("/401k_items", {"401k_amount": "12.5"})
+        self.assertEqual(len(resp.json["401k_items"]), 1)
+
+        resp = self.app.patch_json(f"/401k_items/{row_id}", {"401k_amount": 20})
+        self.assertEqual(resp.json["401k_amount"], 20)
+        self.assertEqual(resp.json["from"], "a")
+
+        resp = self.app.put_json(f"/401k_items/{row_id}", {"401k_amount": 1, "from": "b"})
+        self.assertEqual(resp.json, {"id": row_id, "401k_amount": 1, "from": "b"})
+
+        self.assertEqual(self.app.delete(f"/401k_items/{row_id}").status_code, 200)
+        self.assertEqual(
+            self.app.get(f"/401k_items/{row_id}", expect_errors=True).status_code, 404
+        )
+
+    def test_post_missingRequiredField_400(self):
+        resp = self.app.post_json("/401k_items", {"from": "a"}, expect_errors=True)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json, {"401k_amount": "This field is required"})
 
 
 class TestResourceFactoryMysqlMocked(unittest.TestCase):

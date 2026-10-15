@@ -83,6 +83,8 @@ class API(object):
                 if not data:
                     data = {}
                 for name, val in params.items():
+                    if val.kind in (val.VAR_POSITIONAL, val.VAR_KEYWORD):
+                        continue
                     if (
                         (name not in data)
                         and (name not in kwargs)

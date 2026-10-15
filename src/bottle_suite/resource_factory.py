@@ -26,6 +26,13 @@ class PatchData(Enum):
     UNCHANGED = 1
 
 
+def q(identifier: str) -> str:
+    """Backtick-quote a table/column name for generated SQL (both MySQL and
+    sqlite accept backticks), so names like "401k_amount" or keywords like
+    "from" are valid identifiers."""
+    return "`" + identifier.replace("`", "``") + "`"
+
+
 def createResource(name, fields, sql=False):
     class ChildResource(Resource):
         key = next((f["name"] for f in fields if f["key"] == 1), None)
@@ -61,7 +68,7 @@ def createResource(name, fields, sql=False):
                     _, col, ref_table, ref_col = tuple(ref.values())
                     if not row[col]:
                         continue
-                    sql = f"select * from {ref_table} where {ref_col}={self.bind_char}"
+                    sql = f"select * from {q(ref_table)} where {q(ref_col)}={self.bind_char}"
                     db.execute(sql, (row[col],))
                     row.pop(col)
                     for t in REPLACE_TEXT:
@@ -92,10 +99,10 @@ def createResource(name, fields, sql=False):
                     return {"message": "Resource not found"}
             levels = int(self.params.pop("levels", 1))
             bindings = ()
-            sql = f"""SELECT * FROM {name}"""
+            sql = f"""SELECT * FROM {q(name)}"""
             if key:
                 bindings += (key,)
-                sql += f" WHERE {self.key}={self.bind_char}"
+                sql += f" WHERE {q(self.key)}={self.bind_char}"
             elif self.params:
                 # self.params is request.params -- arbitrary query-string
                 # keys. Only bind the values; validate the keys against the
@@ -106,7 +113,7 @@ def createResource(name, fields, sql=False):
                     return {"message": f"Unknown filter field(s): {', '.join(unknown)}"}
                 bindings = tuple(f"%{v}%" for v in self.params.values())
                 filters = " AND ".join(
-                    [f"{k} LIKE {self.bind_char}" for k in self.params.keys()]
+                    [f"{q(k)} LIKE {self.bind_char}" for k in self.params.keys()]
                 )
                 sql += f" WHERE {filters}"
             query = db.execute(sql, bindings)
@@ -152,7 +159,7 @@ def createResource(name, fields, sql=False):
             if self.key in kwargs and not kwargs[self.key]:
                 kwargs.pop(self.key)
             bindings = tuple(kwargs.values())
-            sql = f"""INSERT INTO {self.table} ({','.join(kwargs.keys())})
+            sql = f"""INSERT INTO {q(self.table)} ({','.join(q(k) for k in kwargs)})
                         VALUES ({','.join([self.bind_char for x in range(len(bindings))])})"""
 
             def _create():
@@ -171,9 +178,9 @@ def createResource(name, fields, sql=False):
         def _doPut(self, db, **kwargs):
             res_id = kwargs.pop(self.key)
             bindings = tuple(kwargs.values())
-            sql = f"""UPDATE {self.table}
-                      SET {','.join([f'{k}={self.bind_char}' for k in kwargs])}
-                      WHERE {self.key}={self.bind_char}"""
+            sql = f"""UPDATE {q(self.table)}
+                      SET {','.join([f'{q(k)}={self.bind_char}' for k in kwargs])}
+                      WHERE {q(self.key)}={self.bind_char}"""
             bindings += (res_id,)
 
             def _update():
@@ -187,9 +194,9 @@ def createResource(name, fields, sql=False):
         def _doPatch(self, db, **kwargs):
             res_id = kwargs.pop(self.key)
             bindings = tuple(v for v in kwargs.values() if v != PatchData.UNCHANGED)
-            sql = f"""UPDATE {self.table}
-                      SET {','.join([f'{k}={self.bind_char}' for k, v in kwargs.items() if v != PatchData.UNCHANGED])}
-                      WHERE {self.key}={self.bind_char}"""
+            sql = f"""UPDATE {q(self.table)}
+                      SET {','.join([f'{q(k)}={self.bind_char}' for k, v in kwargs.items() if v != PatchData.UNCHANGED])}
+                      WHERE {q(self.key)}={self.bind_char}"""
             bindings += (res_id,)
 
             def _update():
@@ -201,7 +208,7 @@ def createResource(name, fields, sql=False):
             return self._runMutation(_update)
 
         def delete(self, db, key):
-            sql = f"DELETE FROM {self.table} WHERE {self.key}={self.bind_char}"
+            sql = f"DELETE FROM {q(self.table)} WHERE {q(self.key)}={self.bind_char}"
 
             def _delete():
                 db.execute(sql, (key,))
@@ -212,22 +219,41 @@ def createResource(name, fields, sql=False):
 
         @classmethod
         def createFunction(cls, _name: str, *args, key_param: str = None, **kwargs):
-            params = ""
-            _args = ""
-            if args:
-                outer_names = ["key" if a == key_param else a for a in args]
-                params += f", {', '.join(outer_names)}"
-                _args += "," + ", ".join(
-                    [f"{a}=key" if a == key_param else f"{a}={a}" for a in args]
-                )
-            if kwargs:
-                params += ", " + ", ".join([f"{x}={kwargs[x]}" for x in kwargs])
-                _args += ", " + ", ".join([f"{x}={x}" for x in kwargs])
-            exec(
-                f"""def func(self, db{params}):
-                return self._do{_name.capitalize()}(db{_args})"""
-            )
-            setattr(cls, _name.lower(), locals().get("func"))
+            # Column names can't be Python parameter names (e.g. "401k_amount"
+            # is not a valid identifier), so fields arrive through **fields and
+            # the required/unknown checks the REST plugin would otherwise do
+            # from the signature are done here. *args are required fields,
+            # **kwargs optional fields with defaults; key_param (if any) is
+            # taken from the "<key>" URL param instead of the request body.
+            required = [a for a in args if a != key_param]
+            allowed = set(args) | set(kwargs)
+            do = getattr(cls, f"_do{_name.capitalize()}")
+
+            def run(self, db, fields):
+                unknown = [f for f in fields if f not in allowed]
+                if unknown:
+                    response.status = 400
+                    return {"message": f"Unknown field(s): {', '.join(unknown)}"}
+                missing = next((a for a in required if a not in fields), None)
+                if missing:
+                    response.status = 400
+                    return {missing: "This field is required"}
+                for k, v in kwargs.items():
+                    fields.setdefault(k, v)
+                return do(self, db, **fields)
+
+            if key_param:
+
+                def func(self, db, key, **fields):
+                    fields[key_param] = key
+                    return run(self, db, fields)
+
+            else:
+
+                def func(self, db, **fields):
+                    return run(self, db, fields)
+
+            setattr(cls, _name.lower(), func)
 
     ChildResource.createFunction(
         "post",

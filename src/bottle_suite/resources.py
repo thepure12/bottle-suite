@@ -92,11 +92,13 @@ def _applyRolesOrPaths(app: "BottleSuite", resource: str, attr_name: str, value:
     return True
 
 
-def _buildRoles(config: dict) -> list:
+def _buildRoles(config: dict, default=False) -> list:
+    # `default` is the app's default_roles, so methods with no explicit
+    # roles show what is actually enforced for them.
     roles = {k: v for k, v in config.get("roles", {}).items()}
     for method in ["get", "post", "put", "patch", "delete"]:
         if method not in roles:
-            roles[method] = False
+            roles[method] = default
     return [{"method": k, "roles": v} for k, v in roles.items()]
 
 
@@ -197,7 +199,7 @@ class AllResources(Resource):
             res_data["paths"] = [
                 {"path": p, "index": i} for i, p in enumerate(res_data["paths"])
             ]
-            res_data["roles"] = _buildRoles(config)
+            res_data["roles"] = _buildRoles(config, getattr(self.app, "default_roles", False))
             return res_data
         else:
             resources = _listDbResourceNames(self.app)
@@ -272,7 +274,7 @@ class PythonResources(Resource):
             config = self.app.cfg.get("resources", {}).get(resource, {})
             cfg_paths = config.get("paths", [f"/{resource}"])
             paths = [{"path": p, "index": i} for i, p in enumerate(cfg_paths)]
-            return {"name": resource, "paths": paths, "roles": _buildRoles(config)}
+            return {"name": resource, "paths": paths, "roles": _buildRoles(config, getattr(self.app, "default_roles", False))}
         return {"resources": [{"name": n} for n in names]}
 
     def post(self, name):
@@ -317,10 +319,10 @@ class ResourceRoles(Resource):
         # table name, which is also what updateRoles/updateRolesBulk expect.
         for table in set(_listDbResourceNames(self.app).values()):
             config = self.app.cfg.get("resources", {}).get(table, {})
-            out.append({"name": table, "kind": "db", "roles": _buildRoles(config)})
+            out.append({"name": table, "kind": "db", "roles": _buildRoles(config, getattr(self.app, "default_roles", False))})
         for name in _listPythonResourceNames():
             config = self.app.cfg.get("resources", {}).get(name, {})
-            out.append({"name": name, "kind": "python", "roles": _buildRoles(config)})
+            out.append({"name": name, "kind": "python", "roles": _buildRoles(config, getattr(self.app, "default_roles", False))})
         return {"resources": out}
 
     def patch(self, updates):

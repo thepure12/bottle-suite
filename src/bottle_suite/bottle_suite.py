@@ -11,6 +11,8 @@ import sys
 import secrets
 import inspect
 import importlib
+import pkgutil
+import copy
 from . import resource_factory, reload, resource_scaffold, openapi
 from .resources import (
     AllResources,
@@ -32,6 +34,13 @@ from pathlib import Path
 
 
 DIST = f"{Path(__file__).parent.parent.resolve()}/bottle_suite/dashboard/dist"
+
+# Settings a mounted child app always takes from its parent (see
+# setupMounts): one token, one CORS policy and one URL space for the whole
+# process, whatever the child's own bottle_suite.toml says.
+MOUNT_INHERITED = ("jwt", "cors", "rest", "dashboard", "openapi", "api_prefix")
+
+_MOUNT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 # Column DEFAULT values are concatenated directly into DDL (neither sqlite3
 # nor pymysql support bind parameters inside ALTER TABLE), so only allow a
@@ -71,6 +80,7 @@ class BottleSuite(Bottle):
         rest: bool = True,
         jwt: Union[bool, str, dict] = True,
         api_prefix: str = "",
+        default_roles: Union[bool, list, str] = False,
         sqlite: Union[bool, str, dict] = False,
         sql: Union[bool, str, dict] = False,
         gen_db: bool = True,
@@ -81,6 +91,10 @@ class BottleSuite(Bottle):
         dashboard: bool = False,
         openapi: Union[bool, dict] = True,
         run_args: dict = {},
+        package: str = None,
+        base_dir: str = None,
+        mounts: dict = None,
+        mounted: bool = False,
         **kwargs,
     ):
         super().__init__(autojson=False, **kwargs)
@@ -92,6 +106,15 @@ class BottleSuite(Bottle):
                 json_dumps=lambda s: json.dumps(s, cls=JSONEncoder)
             )
             self.install(json_plugin)
+        # Package mode: resources come from the installed package
+        # `<package>.resources` instead of ./resources, and the package's
+        # config lives in base_dir (its bottle_suite.toml, plus whatever the
+        # package itself reads from there via app.base_dir).
+        self.package = package
+        self.base_dir = os.path.abspath(base_dir) if base_dir else None
+        self.mounted = mounted
+        if self.base_dir and cfg_file == "bottle_suite.toml":
+            cfg_file = os.path.join(self.base_dir, "bottle_suite.toml")
         self.cfg_file = cfg_file
         self.run_args = run_args
         try:
@@ -105,23 +128,26 @@ class BottleSuite(Bottle):
             # loud warning rather than silently discarding the user's config.
             print(f"Warning: failed to parse {cfg_file}: {e}")
             self.cfg = {}
-        dashboard = self.cfg.get("dashboard", dashboard)
-        if "cors" in self.cfg:
-            cors = self.cfg["cors"]
-        if "rest" in self.cfg:
-            rest = self.cfg["rest"]
-        if "jwt" in self.cfg:
-            jwt = self.cfg["jwt"]
-        if "sqlite" in self.cfg:
-            sqlite = self.cfg["sqlite"]
-        if "sql" in self.cfg:
-            sql = self.cfg["sql"]
-        if "openapi" in self.cfg:
-            openapi = self.cfg["openapi"]
-        if "api_prefix" in self.cfg:
-            api_prefix = self.cfg["api_prefix"]
+        dashboard = self._cfgValue("dashboard", dashboard)
+        cors = self._cfgValue("cors", cors)
+        rest = self._cfgValue("rest", rest)
+        jwt = self._cfgValue("jwt", jwt)
+        sqlite = self._cfgValue("sqlite", sqlite)
+        sql = self._cfgValue("sql", sql)
+        openapi = self._cfgValue("openapi", openapi)
+        api_prefix = self._cfgValue("api_prefix", api_prefix)
+        # A mounted child never mounts anything itself -- one level only.
+        mounts = None if mounted else self._cfgValue("mounts", mounts)
         api_prefix = (api_prefix or "").strip().strip("/")
         self.api_prefix = f"/{api_prefix}" if api_prefix else ""
+        # Roles every hand-authored and DB-generated resource route requires
+        # unless its class or resources.<name>.roles says otherwise (True =
+        # any valid token, a list = at least one of those roles). False keeps
+        # routes open by default. See setRoles().
+        default_roles = self._cfgValue("default_roles", default_roles)
+        self.default_roles = (
+            self._normalizeRoles(default_roles) if default_roles else False
+        )
         # Resources that override api_prefix (e.g. a root-mounted SPA/static-
         # file resource opting out via api_prefix="") are registered last,
         # after every default-prefixed route -- hand-authored, meta, and
@@ -144,12 +170,20 @@ class BottleSuite(Bottle):
         self.setupRest(rest, gen_res)
         if gen_db and (sql or sqlite):
             self.createResForDB()
+        self.setupMounts(mounts)
         self._registerDeferredResources()
         self.setupOpenApi(openapi)
         # Runs last, after every route above is registered, so hooks.py's
         # configure(app) can freely add routes/plugins/middleware or
         # override anything BottleSuite itself just set up.
         self.setupHooks(gen_hooks)
+
+    def _cfgValue(self, key, value):
+        """bottle_suite.toml wins over the constructor arg -- except, in a
+        mounted child, for the MOUNT_INHERITED keys its parent passed in."""
+        if key in self.cfg and not (self.mounted and key in MOUNT_INHERITED):
+            return self.cfg[key]
+        return value
 
     @property
     def resource_names(self):
@@ -243,6 +277,7 @@ class BottleSuite(Bottle):
             self.dashboard_token = None
 
     def setupCors(self, cors):
+        self._cors_cfg = cors
         if cors:
             origins = cors.get("origins") if isinstance(cors, dict) else None
             self.cors = CorsPlugin(origins=origins)
@@ -254,7 +289,9 @@ class BottleSuite(Bottle):
         if rest:
             self.rest = API()
             self.install(self.rest)
-            if gen and os.path.exists(os.getcwd() + "/resources"):
+            if gen and self.package:
+                self.importPackageResources()
+            elif gen and os.path.exists(os.getcwd() + "/resources"):
                 self.importResourcesDir()
             for name, resource, paths in (
                 ("_resources", AllResources(self), ("/_resources", "/_resources/<resource>")),
@@ -292,7 +329,7 @@ class BottleSuite(Bottle):
         # OPTIONS is left alone so CORS preflight still passes through.
         for meth in resource.Methods:
             resource.setRouteConfig(meth, {})
-        self.setRoles(resource, name)
+        self.setRoles(resource, name, use_default=False)
         for meth in resource.Methods:
             if meth == resource.Methods.OPTIONS:
                 continue
@@ -335,8 +372,15 @@ class BottleSuite(Bottle):
                 cfg["jwt_key"] = jwt
             else:
                 cfg = jwt
+            self._jwt_cfg = cfg
             self.jwt = JWTPlugin(**cfg)
             self.install(self.jwt)
+            if self.mounted:
+                # Only the parent issues tokens. Clearing token_paths also
+                # stops any child route that flattens to "token" from turning
+                # into a token endpoint (JWTPlugin.apply keys off route.rule).
+                self.jwt.token_paths = {}
+                return
             # Create default token callbacks. JWTPlugin.apply() looks up the
             # request's token path by flattening route.rule ("/" stripped),
             # so if api_prefix moves "/token" to e.g. "/api/token", the
@@ -398,6 +442,10 @@ class BottleSuite(Bottle):
         self.jwt.token_paths[token_path] = func
 
     def setupAuth(self, gen: bool):
+        if self.package:
+            # A package never brings its own login: the app that mounts it
+            # (or its standalone host project) owns /token.
+            return
         if not (gen and self.jwt and os.path.exists(os.path.join(os.getcwd(), "auth.py"))):
             return
         # Same temp-sys.path/sys.modules dance as importResourcesDir, scaled
@@ -422,6 +470,10 @@ class BottleSuite(Bottle):
         self.setTokenAuthFunction(func)
 
     def setupHooks(self, gen: bool):
+        if self.package:
+            if gen:
+                self._runPackageHook()
+            return
         if not (gen and os.path.exists(os.path.join(os.getcwd(), "hooks.py"))):
             return
         # Same temp-sys.path/sys.modules dance as setupAuth/importResourcesDir,
@@ -468,11 +520,41 @@ class BottleSuite(Bottle):
             if path_added:
                 sys.path.remove(project_root)
 
-    def importResourcesFromFile(self, py_file):
+    def _runPackageHook(self):
+        # The package's own `configure(app)` (in its __init__), if any --
+        # package mode's equivalent of hooks.py. Runs last, like hooks.py;
+        # app.base_dir tells the package where its config lives.
+        func = getattr(importlib.import_module(self.package), "configure", None)
+        if callable(func):
+            func(self)
+
+    def importPackageResources(self):
+        # An installed package stays cached in sys.modules (unlike
+        # ./resources, which importResourcesDir purges), so its classes are
+        # reused by every BottleSuite built in this process -- see
+        # _resetRouteConfig for what that means for roles.
+        package = f"{self.package}.resources"
+        module = importlib.import_module(package)
+        for info in sorted(pkgutil.iter_modules(module.__path__), key=lambda i: i.name):
+            self.importResourcesFromFile(f"{info.name}.py", package=package)
+
+    def _resetRouteConfig(self, resource):
+        # setRoles() mutates class-level route config (and appends toml roles
+        # with +=), so a cached package class would pile up roles on every
+        # build. Snapshot the class's own config the first time it's seen and
+        # restore it before each setRoles() instead.
+        if "_bs_route_cfg" not in resource.__dict__:
+            resource._bs_route_cfg = {
+                meth: copy.deepcopy(resource.getRouteConfig(meth)) for meth in resource.Methods
+            }
+        for meth, cfg in resource._bs_route_cfg.items():
+            resource.setRouteConfig(meth, copy.deepcopy(cfg))
+
+    def importResourcesFromFile(self, py_file, package="resources"):
         module_name = py_file[:-3]
         if module_name == "__init__" or py_file[-3:] != ".py":
             return
-        module = importlib.import_module(f"resources.{module_name}")
+        module = importlib.import_module(f"{package}.{module_name}")
         classes = inspect.getmembers(module, inspect.isclass)
         for cls in classes:
             if Resource not in cls[1].mro(): # Is class a Bottle-Rest Resource
@@ -485,6 +567,8 @@ class BottleSuite(Bottle):
             except:
                 paths = [f"/{module_name}"]
             paths = [self.apiPath(p, prefix=resource.api_prefix) for p in paths]
+            if package != "resources":
+                self._resetRouteConfig(resource)
             self.setRoles(resource, module_name)
             if resource.api_prefix is not None:
                 # An explicit per-resource override -- defer to
@@ -495,11 +579,60 @@ class BottleSuite(Bottle):
             else:
                 self.rest.addResource(cls[1], *paths)
 
+    def setupMounts(self, mounts):
+        """Mount each `[mounts.<name>]` package as its own child BottleSuite
+        at <api_prefix>/<name>/. Each child has its own sql/sqlite, resources,
+        roles and DB auto-CRUD -- the one-database limit is per app, and
+        Bottle runs a mounted route with its own app's plugins (the child's
+        SQL plugin, so its own `db`). The child takes jwt/cors/api_prefix
+        from this app, so one token works everywhere and only this app
+        issues it.
+
+        Each entry is a package name, or a table with `package` and
+        `base_dir` (that package's config folder, default <name>; relative
+        paths resolve against this app's bottle_suite.toml folder)."""
+        self.mounts = {}
+        if not mounts:
+            return
+        if not self.rest:
+            raise Exception("mounts require rest to be enabled")
+        cfg_dir = (
+            os.path.dirname(os.path.abspath(self.cfg_file))
+            if isinstance(self.cfg_file, str)
+            else os.getcwd()
+        )
+        for name, entry in mounts.items():
+            if not _MOUNT_NAME_RE.match(name):
+                raise Exception(f"Invalid mount name '{name}'")
+            if isinstance(entry, str):
+                entry = {"package": entry}
+            base_dir = os.path.join(cfg_dir, entry.get("base_dir", name))
+            child = BottleSuite(
+                package=entry["package"],
+                base_dir=base_dir,
+                mounted=True,
+                cors=self._cors_cfg,
+                jwt=dict(self._jwt_cfg) if self.jwt else False,
+                default_roles=self.default_roles,
+                api_prefix="",
+                dashboard=False,
+                openapi=False,
+            )
+            # The trailing "/" makes Bottle merge the child's routes into
+            # this router (keeping route.app = child) instead of falling back
+            # to an opaque WSGI mount.
+            self.mount(self.apiPath(f"/{name}/"), child)
+            self.mounts[name] = child
+
     def _registerDeferredResources(self):
         for resource, paths in self._deferred_resources:
             self.rest.addResource(resource, *paths)
 
-    def setRoles(self, resource, name):
+    def setRoles(self, resource, name, use_default=True):
+        # Precedence: roles declared on the class > resources.<name>.roles >
+        # default_roles. An explicit `false` in resources.<name>.roles still
+        # counts as declared, so it opts that method out of default_roles.
+        # OPTIONS never gets the default, so CORS preflight passes through.
         for meth in resource.Methods:
             route_cfg = resource.getRouteConfig(meth)
             try:
@@ -515,6 +648,14 @@ class BottleSuite(Bottle):
                 pass
             except Exception as e:
                 print(f"Skipping roles on {meth.value} for {resource}: {type(e)} - {e}")
+            if (
+                use_default
+                and self.default_roles
+                and meth != resource.Methods.OPTIONS
+                and "roles" not in route_cfg
+            ):
+                default = self.default_roles
+                route_cfg["roles"] = list(default) if isinstance(default, list) else default
             resource.setRouteConfig(meth, route_cfg)
 
     def createResForDB(self):
