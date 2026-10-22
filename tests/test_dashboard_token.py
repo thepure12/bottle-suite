@@ -3,14 +3,14 @@ import unittest
 import os
 import tempfile
 import webtest
-from bottle_suite import BottleSuite
-from bottle_suite.dashboard.resources.token import DashboardToken, hashPassword
+from bottler import Bottler
+from bottler.dashboard.resources.token import DashboardToken, hashPassword
 
-NONEXISTENT_CFG = "no_such_bottle_suite_cfg.toml"
+NONEXISTENT_CFG = "no_such_bottler_cfg.toml"
 
 
 class FakeApp:
-    """Minimal stand-in for BottleSuite -- DashboardToken only ever touches
+    """Minimal stand-in for Bottler -- DashboardToken only ever touches
     .cfg/.saveConfig()/.reloadServer(), so a full app isn't needed for the
     pure authenticate()/isConfigured() logic."""
 
@@ -129,7 +129,7 @@ class TestDashboardTokenAuthenticate(unittest.TestCase):
 
 class TestDashboardSetupEndpoint(unittest.TestCase):
     """End-to-end coverage of the /dashboard/setup resource wired up by
-    BottleSuite.setupDashboard/setupRest, including the JWT-plugin route
+    Bottler.setupDashboard/setupRest, including the JWT-plugin route
     bypass (no roles configured -> reachable with no token)."""
 
     def _writeCfg(self, content):
@@ -142,7 +142,7 @@ class TestDashboardSetupEndpoint(unittest.TestCase):
 
     def _app(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, dashboard=True, jwt="k", sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )

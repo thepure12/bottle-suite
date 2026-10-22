@@ -1,4 +1,4 @@
-from bottle_suite import BottleSuite
+from bottler import Bottler
 import argparse
 import time
 from pathlib import Path
@@ -33,7 +33,7 @@ def main():
     parser.add_argument(
         "--dir",
         type=str,
-        help="Change to this directory before starting, so bottle_suite.toml and resources/ are resolved relative to it",
+        help="Change to this directory before starting, so bottler.toml and resources/ are resolved relative to it",
         dest="dir",
         metavar="PATH",
     )
@@ -112,7 +112,7 @@ def main():
                 print(f"- Using JWT key: {token}")
             if args.sqlite == TMP_DB:
                 print(f"- Creating temp database @ {TMP_DB}")
-            app = BottleSuite(**kwargs)
+            app = Bottler(**kwargs)
             if args.dashboard:
                 print(f"- View dashboard @ http://{args.host}:{args.port}/dashboard")
             app.run(**run_args)

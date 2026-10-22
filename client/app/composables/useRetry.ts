@@ -3,7 +3,7 @@
 // reload" note) -- an immediate refetch can land in the brief window
 // between the old process exiting and the new one binding the port, so
 // retry a few times rather than surfacing a spurious save failure for an
-// edit that already persisted to bottle_suite.toml.
+// edit that already persisted to bottler.toml.
 export async function retryAfterReload<T>(fn: () => Promise<T>, attempts = 5, delayMs = 300): Promise<T> {
   let lastError: unknown
   for (let attempt = 0; attempt < attempts; attempt++) {

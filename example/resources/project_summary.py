@@ -1,5 +1,5 @@
 from bottle import response
-from bottle_suite import Resource
+from bottler import Resource
 
 
 class ProjectSummary(Resource):

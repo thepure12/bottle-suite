@@ -1,11 +1,11 @@
-# All config lives in bottle_suite.toml - see README.md for a walkthrough of
+# All config lives in bottler.toml - see README.md for a walkthrough of
 # what this app demonstrates and how to try it out.
 import hashlib
 import hmac
 
-from bottle_suite import BottleSuite
+from bottler import Bottler
 
-app = BottleSuite()
+app = Bottler()
 
 # /token is this app's own REST API login - the dashboard UI authenticates
 # separately, through its own internal /dashboard/token (backed by the

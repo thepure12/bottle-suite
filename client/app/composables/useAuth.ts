@@ -7,7 +7,7 @@ interface CurrentUser {
 // there is no server at request time (ssr:false + static generate) so this
 // is purely a client-accessible, reactive key/value store.
 export function useAuth() {
-  const token = useCookie<string | null>('bottle_suite_token', {
+  const token = useCookie<string | null>('bottler_token', {
     default: () => null,
     sameSite: 'lax',
   })

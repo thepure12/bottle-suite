@@ -1,4 +1,4 @@
-// `nuxt dev` needs to know which port the bottle-suite backend is listening
+// `nuxt dev` needs to know which port the bottler backend is listening
 // on (it's a separate process at dev time - ssr:false + static generate
 // means there's no Nuxt server proxying requests in production, so the
 // dashboard talks to it directly via NUXT_PUBLIC_API_BASE). Rather than a

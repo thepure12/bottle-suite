@@ -3,10 +3,10 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bottle_suite"
+name = "bottler"
 version = "0.0.18"
 authors = [{ name = "TJ Renninger", email = "renninger12@gmail.com" }]
-description = "bottle.py suite with CORS, SQL, REST, and JWT"
+description = "Scaffold and serve bottle.py apps with CORS, SQL, REST, JWT and an admin dashboard"
 readme = "README.md"
 requires-python = ">=3.6"
 classifiers = [
@@ -30,9 +30,9 @@ dependencies = [
 ]
 
 [project.scripts]
-bottle-suite = "bottle_suite.cli.app:main"
-bottle-suite-create = "bottle_suite.cli.create:main"
-bottle-suite-resource = "bottle_suite.cli.create:resource"
+bottler = "bottler.cli.app:main"
+bottler-create = "bottler.cli.create:main"
+bottler-resource = "bottler.cli.create:resource"
 
 [project.optional-dependencies]
 test = [
@@ -43,17 +43,17 @@ test = [
 [tool.coverage.run]
 branch = true
 include = [
-  "*/bottle_suite/bottle_suite.py",
-  "*/bottle_suite/wsgi.py",
-  "*/bottle_suite/resource_factory.py",
-  "*/bottle_suite/resource_scaffold.py",
-  "*/bottle_suite/resources.py",
-  "*/bottle_suite/openapi.py",
-  "*/bottle_suite/plugins/rest.py",
-  "*/bottle_suite/plugins/jwt.py",
-  "*/bottle_suite/plugins/sql.py",
-  "*/bottle_suite/plugins/cors.py",
-  "*/bottle_suite/dashboard/resources/token.py",
+  "*/bottler/core.py",
+  "*/bottler/wsgi.py",
+  "*/bottler/resource_factory.py",
+  "*/bottler/resource_scaffold.py",
+  "*/bottler/resources.py",
+  "*/bottler/openapi.py",
+  "*/bottler/plugins/rest.py",
+  "*/bottler/plugins/jwt.py",
+  "*/bottler/plugins/sql.py",
+  "*/bottler/plugins/cors.py",
+  "*/bottler/dashboard/resources/token.py",
 ]
 
 [tool.coverage.report]

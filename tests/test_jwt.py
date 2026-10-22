@@ -4,16 +4,16 @@ from unittest import mock
 import webtest
 import jwt as pyjwt
 from datetime import datetime, timedelta
-from bottle_suite import BottleSuite
-from bottle_suite.plugins.jwt import InvalidAlgorithm, AuthFailed, MethodNotAllowed
+from bottler import Bottler
+from bottler.plugins.jwt import InvalidAlgorithm, AuthFailed, MethodNotAllowed
 
 JWT_KEY = "secret"
-NONEXISTENT_CFG = "no_such_bottle_suite_cfg.toml"
+NONEXISTENT_CFG = "no_such_bottler_cfg.toml"
 
 
 def make_app(**jwt_kwargs):
     cfg = {"jwt_key": JWT_KEY, **jwt_kwargs}
-    bs = BottleSuite(
+    bs = Bottler(
         cfg_file=NONEXISTENT_CFG,
         cors=True,
         rest=False,

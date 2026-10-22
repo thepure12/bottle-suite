@@ -1,6 +1,6 @@
 import _paths  # noqa: F401
 import unittest
-from bottle_suite import resource_scaffold
+from bottler import resource_scaffold
 
 
 class TestResourceScaffold(unittest.TestCase):

@@ -1,6 +1,6 @@
 """Shared helpers for mocking pymysql, since no live MySQL server is
 available in this environment. Patching pymysql.connect globally is
-sufficient because both bottle_suite.py and plugins/sql.py call it as a
+sufficient because both core.py and plugins/sql.py call it as a
 direct module attribute (no per-module re-import to chase).
 """
 import unittest.mock as mock
@@ -13,7 +13,7 @@ def make_mysql_cursor(fetchone=None, fetchall=None, lastrowid=1,
                        execute_returns=1, execute_side_effect=None):
     """Build a cursor mock that behaves like pymysql's DictCursor.
 
-    spec=pymysql.cursors.DictCursor is required: bottle_suite.getDBTables()
+    spec=pymysql.cursors.DictCursor is required: bottler.getDBTables()
     does `isinstance(db, pymysql.cursors.Cursor)` with no fallback branch,
     so an un-spec'd MagicMock would fail that check silently.
 

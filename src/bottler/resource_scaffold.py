@@ -3,7 +3,7 @@ import re
 
 NAME_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
-TEMPLATE = '''from bottle_suite import Resource
+TEMPLATE = '''from bottler import Resource
 
 
 class {class_name}(Resource):

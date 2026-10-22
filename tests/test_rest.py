@@ -2,8 +2,8 @@ import _paths  # noqa: F401
 import unittest
 import bottle
 import webtest
-from bottle_suite.plugins.rest import API, Resource
-from bottle_suite.plugins.cors import CorsPlugin
+from bottler.plugins.rest import API, Resource
+from bottler.plugins.cors import CorsPlugin
 
 
 class OtherKeywordAPI(API):

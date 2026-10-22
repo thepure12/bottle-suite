@@ -1,7 +1,7 @@
 <template>
   <div class="flex items-center" :class="gap">
     <span class="rounded-full bg-primary shrink-0" :class="dotSize" aria-hidden="true" />
-    <span class="font-semibold text-highlighted" :class="textSize">Bottle Suite</span>
+    <span class="font-semibold text-highlighted" :class="textSize">Bottler</span>
   </div>
 </template>
 

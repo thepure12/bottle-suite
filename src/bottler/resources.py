@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Union
 from bottle import response
 
 if TYPE_CHECKING:  # pragma: no cover -- never True at runtime
-    from .bottle_suite import BottleSuite
+    from .core import Bottler
 
 SQLITE_TYPES = [
     "INT",
@@ -71,7 +71,7 @@ def _normalizeMethod(value: dict) -> Union[str, list]:
     return value["method"].lower()
 
 
-def _applyRolesOrPaths(app: "BottleSuite", resource: str, attr_name: str, value: dict) -> bool:
+def _applyRolesOrPaths(app: "Bottler", resource: str, attr_name: str, value: dict) -> bool:
     """Shared roles/paths/remove_path patch dispatch used by both
     AllResources.patch and PythonResources.patch. Returns False (handling
     nothing) when attr_name is something only the caller understands (e.g.
@@ -102,7 +102,7 @@ def _buildRoles(config: dict, default=False) -> list:
     return [{"method": k, "roles": v} for k, v in roles.items()]
 
 
-def _listDbResourceNames(app: "BottleSuite") -> dict:
+def _listDbResourceNames(app: "Bottler") -> dict:
     resources = {}
     for r in app.rest.resources:
         name = getattr(r, "name", r.__class__.__name__)
@@ -131,7 +131,7 @@ def _listPythonResourceNames() -> list:
 
 
 class Config(Resource):
-    def __init__(self, app: "BottleSuite") -> None:
+    def __init__(self, app: "Bottler") -> None:
         super().__init__()
         self.app = app
 
@@ -153,7 +153,7 @@ class Config(Resource):
             return {"message": str(e)}
 
 class DataTypes(Resource):
-    def __init__(self, app: "BottleSuite") -> None:
+    def __init__(self, app: "Bottler") -> None:
         super().__init__()
         self.app = app
 
@@ -171,7 +171,7 @@ class AllResources(Resource):
 
     
 
-    def __init__(self, app: "BottleSuite") -> None:
+    def __init__(self, app: "Bottler") -> None:
         super().__init__()
         self.app = app
 
@@ -253,7 +253,7 @@ class AllResources(Resource):
 
 
 class PythonResources(Resource):
-    def __init__(self, app: "BottleSuite") -> None:
+    def __init__(self, app: "Bottler") -> None:
         super().__init__()
         self.app = app
 
@@ -305,7 +305,7 @@ class PythonResources(Resource):
 
 
 class ResourceRoles(Resource):
-    def __init__(self, app: "BottleSuite") -> None:
+    def __init__(self, app: "Bottler") -> None:
         super().__init__()
         self.app = app
 

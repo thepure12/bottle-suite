@@ -98,7 +98,7 @@ onMounted(async () => {
       // protected endpoints without re-entering a token in Swagger's own
       // Authorize dialog - mirrors useApi.ts's onRequest bearer attachment.
       requestInterceptor: (req: any) => {
-        const token = useCookie<string | null>('bottle_suite_token').value
+        const token = useCookie<string | null>('bottler_token').value
         if (token) {
           req.headers.Authorization = `Bearer ${token}`
         }

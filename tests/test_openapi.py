@@ -7,12 +7,12 @@ import types
 import webtest
 import jwt as pyjwt
 from datetime import datetime, timedelta
-from bottle_suite import BottleSuite
-from bottle_suite import openapi
+from bottler import Bottler
+from bottler import openapi
 import db_fixtures
 from mysql_mock import make_mysql_cursor, patch_pymysql_connect
 
-NONEXISTENT_CFG = "no_such_bottle_suite_cfg.toml"
+NONEXISTENT_CFG = "no_such_bottler_cfg.toml"
 JWT_KEY = "secret"
 
 
@@ -30,10 +30,10 @@ def _valid_token(**extra):
 
 
 class TestOpenApiToggle(unittest.TestCase):
-    """Covers BottleSuite.setupOpenApi's wiring in bottle_suite.py."""
+    """Covers Bottler.setupOpenApi's wiring in core.py."""
 
     def test_default_enabled_returns200(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -44,7 +44,7 @@ class TestOpenApiToggle(unittest.TestCase):
             self.assertIn(key, resp.json)
 
     def test_disabledBool_notRegistered(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False, openapi=False,
         )
@@ -53,7 +53,7 @@ class TestOpenApiToggle(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
 
     def test_disabledDict_notRegistered(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False, openapi={"enabled": False},
         )
@@ -64,14 +64,14 @@ class TestOpenApiToggle(unittest.TestCase):
     def test_tomlOverridesConstructorArg(self):
         path = _write_cfg("openapi = false\n")
         self.addCleanup(os.remove, path)
-        bs = BottleSuite(cfg_file=path, jwt=False, sqlite=False, sql=False,
+        bs = Bottler(cfg_file=path, jwt=False, sqlite=False, sql=False,
                           gen_res=False, gen_db=False, openapi=True)
         app = webtest.TestApp(bs)
         resp = app.get("/openapi.json", expect_errors=True)
         self.assertEqual(resp.status_code, 404)
 
     def test_rolesGated_requiresAuth(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt={"jwt_key": JWT_KEY}, sqlite=False,
             sql=False, gen_res=False, gen_db=False,
             openapi={"roles": ["admin"]},
@@ -207,16 +207,16 @@ class TestBuildSpecHelpers(unittest.TestCase):
         self.assertEqual(schema["properties"]["tags"], {"type": "string"})
 
     def test_infoBlock_defaults(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
         info = openapi._infoBlock(bs)
-        self.assertEqual(info["title"], "Bottle Suite API")
+        self.assertEqual(info["title"], "Bottler API")
         self.assertIn("version", info)
 
     def test_infoBlock_tomlOverrides(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -225,16 +225,16 @@ class TestBuildSpecHelpers(unittest.TestCase):
         self.assertEqual(info, {"title": "Custom", "version": "9.9.9", "description": "desc"})
 
     def test_infoBlock_openapiCfgNotDict_ignored(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
         bs.cfg["openapi"] = True
         info = openapi._infoBlock(bs)
-        self.assertEqual(info["title"], "Bottle Suite API")
+        self.assertEqual(info["title"], "Bottler API")
 
     def test_infoBlock_packageNotFound_fallsBackVersion(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -251,7 +251,7 @@ class TestBuildSpecIntegration(unittest.TestCase):
 
     def setUp(self):
         self.tmp_db = db_fixtures.temp_sqlite_copy()
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             jwt={"jwt_key": JWT_KEY},
             sqlite=self.tmp_db,
@@ -287,7 +287,7 @@ class TestBuildSpecIntegration(unittest.TestCase):
 
     def test_metaAndDashboardRoutes_excluded(self):
         for rule in (
-            "/_resources", "/_datatypes", "/bottle_suite_cfg",
+            "/_resources", "/_datatypes", "/bottler_cfg",
             "/_python_resources", "/_roles", "/dashboard", "/openapi.json",
         ):
             self.assertNotIn(rule, self.paths)
@@ -338,7 +338,7 @@ class TestBuildSpecIntegration(unittest.TestCase):
 
 class TestBuildSpecSecurityAndComponents(unittest.TestCase):
     def _bareApp(self, jwt=False):
-        return BottleSuite(
+        return Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=jwt, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -392,7 +392,7 @@ class TestBuildSpecMysql(unittest.TestCase):
             {"Field": "label", "Type": "VARCHAR(45)", "Null": "NO", "Default": None, "Key": ""},
         ]
         cursor.fetchall.side_effect = [table_list, columns]
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             sqlite=False, jwt=False, gen_res=False, gen_db=True,

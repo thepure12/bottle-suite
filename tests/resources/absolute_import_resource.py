@@ -1,4 +1,4 @@
-from bottle_suite import Resource
+from bottler import Resource
 from project_util import PROJECT_GREETING
 
 

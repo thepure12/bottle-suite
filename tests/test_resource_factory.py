@@ -6,12 +6,12 @@ import sqlite3
 import webtest
 import pymysql
 import bottle
-from bottle_suite import BottleSuite, resource_factory
-from bottle_suite.resource_factory import PatchData
+from bottler import Bottler, resource_factory
+from bottler.resource_factory import PatchData
 import db_fixtures
 from mysql_mock import make_mysql_cursor, patch_pymysql_connect
 
-NONEXISTENT_CFG = "no_such_bottle_suite_cfg.toml"
+NONEXISTENT_CFG = "no_such_bottler_cfg.toml"
 
 
 class TestResourceFactorySqlite(unittest.TestCase):
@@ -21,7 +21,7 @@ class TestResourceFactorySqlite(unittest.TestCase):
 
     def setUp(self):
         self.tmp_db = db_fixtures.temp_sqlite_copy()
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             cors=True,
             rest=True,
@@ -180,7 +180,7 @@ class TestResourceFactorySqlite(unittest.TestCase):
         self.assertIn("message", result)
 
     # --- PATCH / PUT via HTTP: the generated route uses the literal URL
-    # param name "<key>" (bottle_suite.py::createResForDB), while
+    # param name "<key>" (core.py::createResForDB), while
     # createFunction() generates put/patch signatures using the *actual*
     # primary-key field name (e.g. "id"). createFunction()'s key_param
     # mechanism renames the outer param to "key" (matching the route) and
@@ -354,7 +354,7 @@ class TestResourceFactoryNonIdentifierColumns(unittest.TestCase):
         )
         conn.commit()
         conn.close()
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=NONEXISTENT_CFG, rest=True, jwt=False, sqlite=self.tmp_db,
             sql=False, gen_res=False, gen_db=True,
         )
@@ -392,10 +392,10 @@ class TestResourceFactoryNonIdentifierColumns(unittest.TestCase):
 
 class TestResourceFactoryMysqlMocked(unittest.TestCase):
     """Exercises the MySQL-only branches directly against the generated
-    resource, without going through BottleSuite's auto-discovery (which
+    resource, without going through Bottler's auto-discovery (which
     would require scripting many sequential mocked queries for table
-    introspection) -- mocking pymysql.connect at the plugin/bottle_suite
-    layer is covered separately in test_bottle_suite.py."""
+    introspection) -- mocking pymysql.connect at the plugin/bottler
+    layer is covered separately in test_bottler.py."""
 
     def setUp(self):
         self.fields = [

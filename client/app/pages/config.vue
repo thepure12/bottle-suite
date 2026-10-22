@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <PageHeader title="Config" description="Bottle Suite server configuration.">
+    <PageHeader title="Config" description="Bottler server configuration.">
       <template #badge>
         <UBadge v-if="isDirty" color="warning" variant="subtle" size="sm">Unsaved changes</UBadge>
       </template>

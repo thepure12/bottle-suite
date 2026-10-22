@@ -2,7 +2,7 @@ interface SetupStatus {
   configured: boolean
 }
 
-// Talks to the backend's /dashboard/setup resource (bottle_suite.dashboard.
+// Talks to the backend's /dashboard/setup resource (bottler.dashboard.
 // resources.token.DashboardToken), which lets a fresh install set its one
 // admin credential the first time the dashboard is opened. Caches a
 // known-configured result in a shared useState so navigating between pages

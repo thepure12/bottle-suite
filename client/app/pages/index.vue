@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <PageHeader title="Overview" description="A snapshot of this Bottle Suite server." />
+    <PageHeader title="Overview" description="A snapshot of this Bottler server." />
 
     <LoadingRows v-if="loading" variant="stat" :count="3" />
     <div v-else class="grid grid-cols-1 sm:grid-cols-3 gap-4">

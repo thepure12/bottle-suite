@@ -5,10 +5,10 @@ import webtest
 import datetime
 import decimal
 import pymysql
-from bottle_suite import BottleSuite
-from bottle_suite.bottle_suite import JSONEncoder
-from bottle_suite.plugins import rest as bottle_rest
-from bottle_suite.plugins import jwt as bottle_jwt
+from bottler import Bottler
+from bottler.core import JSONEncoder
+from bottler.plugins import rest as bottle_rest
+from bottler.plugins import jwt as bottle_jwt
 import toml
 import os
 import sys
@@ -19,7 +19,7 @@ import db_fixtures
 from mysql_mock import make_mysql_cursor, patch_pymysql_connect, pragma_raises_side_effect
 
 DEBUG = False
-NONEXISTENT_CFG = "no_such_bottle_suite_cfg.toml"
+NONEXISTENT_CFG = "no_such_bottler_cfg.toml"
 
 
 class TestResource(bottle_rest.Resource):
@@ -42,13 +42,13 @@ class TestResource(bottle_rest.Resource):
         pass
 
 
-class TestBottleSuite(unittest.TestCase):
+class TestBottler(unittest.TestCase):
     def setUp(self) -> None:
-        self.bottle_suite = BottleSuite(gen_res=False, gen_db=False)
-        self.app = webtest.TestApp(self.bottle_suite)
+        self.bottler = Bottler(gen_res=False, gen_db=False)
+        self.app = webtest.TestApp(self.bottler)
 
     def addTestResource(self):
-        self.bottle_suite.rest.addResource(TestResource, "/test_resource")
+        self.bottler.rest.addResource(TestResource, "/test_resource")
 
     def _writeCfg(self, content):
         fd, path = tempfile.mkstemp(suffix=".toml", dir=os.getcwd())
@@ -59,15 +59,15 @@ class TestBottleSuite(unittest.TestCase):
         return path
 
     def test_init(self):
-        self.assertIsNotNone(self.bottle_suite.cors)
-        self.assertIsNotNone(self.bottle_suite.rest)
-        self.assertIsInstance(self.bottle_suite.jwt, bottle_jwt.JWTPlugin)
-        self.assertIsNotNone(self.bottle_suite.sqlite)
+        self.assertIsNotNone(self.bottler.cors)
+        self.assertIsNotNone(self.bottler.rest)
+        self.assertIsInstance(self.bottler.jwt, bottle_jwt.JWTPlugin)
+        self.assertIsNotNone(self.bottler.sqlite)
 
     # Config
     def test_loadConfig(self):
-        cfg = toml.load("bottle_suite.toml")
-        self.assertEqual(cfg, self.bottle_suite.cfg)
+        cfg = toml.load("bottler.toml")
+        self.assertEqual(cfg, self.bottler.cfg)
 
     def test_loadConfig_malformedToml_warnsAndFallsBackToEmpty(self):
         fd, path = tempfile.mkstemp(suffix=".toml", dir=os.getcwd())
@@ -75,7 +75,7 @@ class TestBottleSuite(unittest.TestCase):
         self.addCleanup(os.remove, path)
         with open(path, "w") as f:
             f.write("not: valid: toml: [")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -83,18 +83,18 @@ class TestBottleSuite(unittest.TestCase):
 
     # REST
     def test_initRest(self):
-        self.assertIn("AllResources", self.bottle_suite.resource_names)
-        self.assertIn("DataTypes", self.bottle_suite.resource_names)
+        self.assertIn("AllResources", self.bottler.resource_names)
+        self.assertIn("DataTypes", self.bottler.resource_names)
 
     def test_initNoRest(self):
-        self.bottle_suite = BottleSuite(rest=False)
+        self.bottler = Bottler(rest=False)
         self.assertIsNone(
-            next((p for p in self.bottle_suite.plugins if "API" in str(p)), None)
+            next((p for p in self.bottler.plugins if "API" in str(p)), None)
         )
 
     def test_addResource(self):
         self.addTestResource()
-        self.assertIn("TestResource", self.bottle_suite.resource_names)
+        self.assertIn("TestResource", self.bottler.resource_names)
         self.assertEqual(200, self.app.get("/test_resource").status_code)
 
     def test_restMethods(self):
@@ -107,17 +107,17 @@ class TestBottleSuite(unittest.TestCase):
         self.assertEqual(self.app.delete("/test_resource").status_code, 200)
 
     def test_genFileResource(self):
-        self.bottle_suite = BottleSuite(gen_res=True, gen_db=False)
-        self.app = webtest.TestApp(self.bottle_suite)
-        self.assertIn("FileResource", self.bottle_suite.resource_names)
+        self.bottler = Bottler(gen_res=True, gen_db=False)
+        self.app = webtest.TestApp(self.bottler)
+        self.assertIn("FileResource", self.bottler.resource_names)
         self.assertEqual(200, self.app.get("/file_resource").status_code)
 
     def test_genFileResource_relativeImport(self):
         # resources/relative_import_resource.py does `from . import _shared`
         # -- only works because resources/ is loaded as a real package.
-        self.bottle_suite = BottleSuite(gen_res=True, gen_db=False)
-        self.app = webtest.TestApp(self.bottle_suite)
-        self.assertIn("RelativeImportResource", self.bottle_suite.resource_names)
+        self.bottler = Bottler(gen_res=True, gen_db=False)
+        self.app = webtest.TestApp(self.bottler)
+        self.assertIn("RelativeImportResource", self.bottler.resource_names)
         resp = self.app.get("/relative_import_resource")
         self.assertEqual(200, resp.status_code)
         self.assertEqual("hello from _shared", resp.json["greeting"])
@@ -126,29 +126,29 @@ class TestBottleSuite(unittest.TestCase):
         # resources/absolute_import_resource.py does
         # `from project_util import PROJECT_GREETING`, a module living at
         # the project root (tests/) rather than inside resources/.
-        self.bottle_suite = BottleSuite(gen_res=True, gen_db=False)
-        self.app = webtest.TestApp(self.bottle_suite)
-        self.assertIn("AbsoluteImportResource", self.bottle_suite.resource_names)
+        self.bottler = Bottler(gen_res=True, gen_db=False)
+        self.app = webtest.TestApp(self.bottler)
+        self.assertIn("AbsoluteImportResource", self.bottler.resource_names)
         resp = self.app.get("/absolute_import_resource")
         self.assertEqual(200, resp.status_code)
         self.assertEqual("hello from project_util", resp.json["greeting"])
 
     # JWT
     def test_initJWT(self):
-        self.assertIsInstance(self.bottle_suite.jwt, bottle_jwt.JWTPlugin)
+        self.assertIsInstance(self.bottler.jwt, bottle_jwt.JWTPlugin)
 
     def test_initNoJWT(self):
-        self.bottle_suite = BottleSuite(jwt=False, cfg_file=None)
+        self.bottler = Bottler(jwt=False, cfg_file=None)
         self.assertIsNone(
-            next((p for p in self.bottle_suite.plugins if "JWT" in str(p)), None)
+            next((p for p in self.bottler.plugins if "JWT" in str(p)), None)
         )
 
     # SQL
     def test_initSQLite(self):
-        self.assertIsNotNone(self.bottle_suite.sqlite)
+        self.assertIsNotNone(self.bottler.sqlite)
 
     def test_initNoSQLite(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             sqlite=False,
             sql=False,
@@ -159,7 +159,7 @@ class TestBottleSuite(unittest.TestCase):
         self.assertIsNone(bs.sqlite)
 
     def test_setupSql_dictConfig(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             sqlite=False,
@@ -170,7 +170,7 @@ class TestBottleSuite(unittest.TestCase):
         self.assertEqual(bs.sql.sql_config["database"], "d")
 
     def test_setupSql_strConfig(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             sql="dbname",
             sqlite=False,
@@ -183,7 +183,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_setupSqlite_dictConfig(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             sqlite={"database": tmp_db},
             sql=False,
@@ -197,7 +197,7 @@ class TestBottleSuite(unittest.TestCase):
         # jwt=True (the constructor default) means "enabled, no explicit key"
         # -- a random per-process secret is generated instead of falling
         # back to a hardcoded, guessable one.
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=True, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -206,11 +206,11 @@ class TestBottleSuite(unittest.TestCase):
         self.assertGreater(len(bs.jwt.jwt_key), 16)
 
     def test_setupJwt_boolTrue_eachInstantiationGetsDifferentKey(self):
-        bs1 = BottleSuite(
+        bs1 = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=True, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
-        bs2 = BottleSuite(
+        bs2 = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=True, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -220,15 +220,15 @@ class TestBottleSuite(unittest.TestCase):
         # sqlite=True (bool) skips both branches; sqlitePlugin's required
         # `database` positional arg then crashes.
         with self.assertRaises(TypeError):
-            BottleSuite(
+            Bottler(
                 cfg_file=NONEXISTENT_CFG, sqlite=True, sql=False, jwt=False,
                 gen_res=False, gen_db=False,
             )
 
     def test_setTokenAuthFunction_defaultsToAuthFunc(self):
-        from bottle_suite.plugins.jwt import authFunc
+        from bottler.plugins.jwt import authFunc
 
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -236,7 +236,7 @@ class TestBottleSuite(unittest.TestCase):
         self.assertIs(bs.jwt.token_paths["token"], authFunc)
 
     def test_setTokenAuthFunction_customFunc(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -246,7 +246,7 @@ class TestBottleSuite(unittest.TestCase):
 
     # --- api_prefix / apiPath ---
     def test_apiPath_defaultNoPrefix_returnsPathUnchanged(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -254,28 +254,28 @@ class TestBottleSuite(unittest.TestCase):
         self.assertEqual(bs.apiPath("/reports"), "/reports")
 
     def test_apiPath_globalPrefix_prepended(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt=False,
             sqlite=False, sql=False, gen_res=False, gen_db=False,
         )
         self.assertEqual(bs.apiPath("/reports"), "/api/reports")
 
     def test_apiPath_explicitEmptyOverride_bypassesGlobalPrefix(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt=False,
             sqlite=False, sql=False, gen_res=False, gen_db=False,
         )
         self.assertEqual(bs.apiPath("/", prefix=""), "/")
 
     def test_apiPath_normalizesSurroundingSlashesAndWhitespace(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, api_prefix=" /api/ ", jwt=False,
             sqlite=False, sql=False, gen_res=False, gen_db=False,
         )
         self.assertEqual(bs.api_prefix, "/api")
 
     def test_apiPath_emptyStringPrefix_normalizesToOff(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, api_prefix="", jwt=False,
             sqlite=False, sql=False, gen_res=False, gen_db=False,
         )
@@ -283,14 +283,14 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_configPrecedence_apiPrefix_tomlOverridesCtor(self):
         path = self._writeCfg('api_prefix = "/api"\n')
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, api_prefix="", jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
         self.assertEqual(bs.api_prefix, "/api")
 
     def test_setupJwt_apiPrefix_rekeysTokenPathAndRoutesUnderPrefix(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt="k",
             sqlite=False, sql=False, gen_res=False, gen_db=False,
         )
@@ -306,7 +306,7 @@ class TestBottleSuite(unittest.TestCase):
         )
 
     def test_setTokenAuthFunction_explicitTokenPath_bypassesDefaultLookup(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -316,7 +316,7 @@ class TestBottleSuite(unittest.TestCase):
         self.assertIn("token", bs.jwt.token_paths)
 
     def test_setTokenAuthFunction_apiPrefix_defaultsToRekeyedPath(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt="k",
             sqlite=False, sql=False, gen_res=False, gen_db=False,
         )
@@ -336,7 +336,7 @@ class TestBottleSuite(unittest.TestCase):
         try:
             os.chdir(tmp)
             self._writeAuthPy(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -346,13 +346,13 @@ class TestBottleSuite(unittest.TestCase):
             shutil.rmtree(tmp)
 
     def test_setupAuth_noAuthPy_noop(self):
-        from bottle_suite.plugins.jwt import authFunc
+        from bottler.plugins.jwt import authFunc
 
         cwd = os.getcwd()
         tmp = tempfile.mkdtemp()
         try:
             os.chdir(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -362,14 +362,14 @@ class TestBottleSuite(unittest.TestCase):
             shutil.rmtree(tmp)
 
     def test_setupAuth_genAuthFalse_noop(self):
-        from bottle_suite.plugins.jwt import authFunc
+        from bottler.plugins.jwt import authFunc
 
         cwd = os.getcwd()
         tmp = tempfile.mkdtemp()
         try:
             os.chdir(tmp)
             self._writeAuthPy(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
                 gen_res=False, gen_db=False, gen_auth=False,
             )
@@ -384,7 +384,7 @@ class TestBottleSuite(unittest.TestCase):
         try:
             os.chdir(tmp)
             self._writeAuthPy(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -394,7 +394,7 @@ class TestBottleSuite(unittest.TestCase):
             shutil.rmtree(tmp)
 
     def test_setupAuth_missingAuthenticateAttr_warnsAndSkips(self):
-        from bottle_suite.plugins.jwt import authFunc
+        from bottler.plugins.jwt import authFunc
 
         cwd = os.getcwd()
         tmp = tempfile.mkdtemp()
@@ -402,7 +402,7 @@ class TestBottleSuite(unittest.TestCase):
             os.chdir(tmp)
             self._writeAuthPy(tmp, body="x = 1\n")
             with mock.patch("builtins.print") as mock_print:
-                bs = BottleSuite(
+                bs = Bottler(
                     cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
                     gen_res=False, gen_db=False,
                 )
@@ -415,14 +415,14 @@ class TestBottleSuite(unittest.TestCase):
             shutil.rmtree(tmp)
 
     def test_setupAuth_authenticateNotCallable_warnsAndSkips(self):
-        from bottle_suite.plugins.jwt import authFunc
+        from bottler.plugins.jwt import authFunc
 
         cwd = os.getcwd()
         tmp = tempfile.mkdtemp()
         try:
             os.chdir(tmp)
             self._writeAuthPy(tmp, body="authenticate = 'not callable'\n")
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -440,7 +440,7 @@ class TestBottleSuite(unittest.TestCase):
             self._writeAuthPy(
                 tmp1, body="def authenticate(**kwargs):\n    return {'user': 'one'}\n"
             )
-            bs1 = BottleSuite(
+            bs1 = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -451,7 +451,7 @@ class TestBottleSuite(unittest.TestCase):
             self._writeAuthPy(
                 tmp2, body="def authenticate(**kwargs):\n    return {'user': 'two'}\n"
             )
-            bs2 = BottleSuite(
+            bs2 = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -473,7 +473,7 @@ class TestBottleSuite(unittest.TestCase):
             self._writeAuthPy(tmp)
             sys.path.insert(0, tmp)
             try:
-                bs = BottleSuite(
+                bs = Bottler(
                     cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
                     gen_res=False, gen_db=False,
                 )
@@ -495,7 +495,7 @@ class TestBottleSuite(unittest.TestCase):
             os.chdir(tmp)
             self._writeAuthPy(tmp, body="def authenticate(:\n    pass\n")
             with self.assertRaises(SyntaxError):
-                BottleSuite(
+                Bottler(
                     cfg_file=NONEXISTENT_CFG, jwt="k", sqlite=False, sql=False,
                     gen_res=False, gen_db=False,
                 )
@@ -516,7 +516,7 @@ class TestBottleSuite(unittest.TestCase):
         try:
             os.chdir(tmp)
             self._writeHooksPy(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -530,7 +530,7 @@ class TestBottleSuite(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             os.chdir(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -545,7 +545,7 @@ class TestBottleSuite(unittest.TestCase):
         try:
             os.chdir(tmp)
             self._writeHooksPy(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False, gen_hooks=False,
             )
@@ -561,7 +561,7 @@ class TestBottleSuite(unittest.TestCase):
             os.chdir(tmp)
             self._writeHooksPy(tmp, body="x = 1\n")
             with mock.patch("builtins.print") as mock_print:
-                bs = BottleSuite(
+                bs = Bottler(
                     cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                     gen_res=False, gen_db=False,
                 )
@@ -579,7 +579,7 @@ class TestBottleSuite(unittest.TestCase):
         try:
             os.chdir(tmp)
             self._writeHooksPy(tmp, body="configure = 'not callable'\n")
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -597,7 +597,7 @@ class TestBottleSuite(unittest.TestCase):
             self._writeHooksPy(
                 tmp1, body="def configure(app):\n    app.hook_ran = 'one'\n"
             )
-            bs1 = BottleSuite(
+            bs1 = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -608,7 +608,7 @@ class TestBottleSuite(unittest.TestCase):
             self._writeHooksPy(
                 tmp2, body="def configure(app):\n    app.hook_ran = 'two'\n"
             )
-            bs2 = BottleSuite(
+            bs2 = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -630,7 +630,7 @@ class TestBottleSuite(unittest.TestCase):
             self._writeHooksPy(tmp)
             sys.path.insert(0, tmp)
             try:
-                bs = BottleSuite(
+                bs = Bottler(
                     cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                     gen_res=False, gen_db=False,
                 )
@@ -653,7 +653,7 @@ class TestBottleSuite(unittest.TestCase):
             os.chdir(tmp)
             self._writeHooksPy(tmp, body="def configure(:\n    pass\n")
             with self.assertRaises(SyntaxError):
-                BottleSuite(
+                Bottler(
                     cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                     gen_res=False, gen_db=False,
                 )
@@ -664,7 +664,7 @@ class TestBottleSuite(unittest.TestCase):
             shutil.rmtree(tmp)
 
     def test_setupJwt_strConfig(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             jwt="mykey",
             sqlite=False,
@@ -675,7 +675,7 @@ class TestBottleSuite(unittest.TestCase):
         self.assertEqual(bs.jwt.jwt_key, "mykey")
 
     def test_setupCors_false_noPlugin(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             cors=False,
             jwt=False,
@@ -689,7 +689,7 @@ class TestBottleSuite(unittest.TestCase):
     # --- config precedence: toml always overrides constructor args ---
     def test_configPrecedence_cors_tomlOverridesCtorFalse(self):
         path = self._writeCfg("cors = true\n")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, cors=False, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -697,7 +697,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_configPrecedence_cors_tomlOverridesCtorTrue(self):
         path = self._writeCfg("cors = false\n")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, cors=True, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -705,7 +705,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_configPrecedence_rest_tomlOverridesCtor(self):
         path = self._writeCfg("rest = false\n")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, rest=True, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -713,7 +713,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_configPrecedence_jwt_tomlOverridesCtor(self):
         path = self._writeCfg("jwt = false\n")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt="somekey", sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -723,7 +723,7 @@ class TestBottleSuite(unittest.TestCase):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
         path = self._writeCfg(f'sqlite = "{tmp_db}"\n')
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, sqlite=False, sql=False, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -733,7 +733,7 @@ class TestBottleSuite(unittest.TestCase):
         path = self._writeCfg(
             'sql = {host = "h", user = "u", password = "p", database = "d"}\n'
         )
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, sql=False, sqlite=False, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -741,7 +741,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_configPrecedence_dashboard_tomlOverridesCtor(self):
         path = self._writeCfg("dashboard = true\n")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, dashboard=False, jwt="k", sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -750,13 +750,13 @@ class TestBottleSuite(unittest.TestCase):
     # --- sql/sqlite mutual exclusion boundary ---
     def test_sqlAndSqliteBothTruthy_raises(self):
         with self.assertRaises(Exception):
-            BottleSuite(
+            Bottler(
                 cfg_file=NONEXISTENT_CFG, sql=True, sqlite=True, jwt=False,
                 gen_res=False, gen_db=False,
             )
 
     def test_sqlAndSqliteBothFalsyEmpty_noRaise(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sql="", sqlite={}, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -765,8 +765,8 @@ class TestBottleSuite(unittest.TestCase):
 
     # --- setupDashboard ---
     def test_setupDashboard_missingBuild_warnsNoExcept(self):
-        with mock.patch("bottle_suite.bottle_suite.DIST", "/nonexistent/dashboard/dist"):
-            bs = BottleSuite(
+        with mock.patch("bottler.core.DIST", "/nonexistent/dashboard/dist"):
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, dashboard=True, jwt="k", sqlite=False,
                 sql=False, gen_res=False, gen_db=False,
             )
@@ -777,15 +777,15 @@ class TestBottleSuite(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp_dir)
         with open(os.path.join(tmp_dir, "index.html"), "w") as f:
             f.write("<html></html>")
-        with mock.patch("bottle_suite.bottle_suite.DIST", tmp_dir):
-            bs = BottleSuite(
+        with mock.patch("bottler.core.DIST", tmp_dir):
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, dashboard=True, jwt="k", sqlite=False,
                 sql=False, gen_res=False, gen_db=False,
             )
         self.assertTrue(any(r.rule.startswith("/dashboard") for r in bs.routes))
 
     def test_dashboardAndNuxt_routeHandlers_invoked(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, dashboard=True, jwt="k", sqlite=False,
             sql=False, gen_res=False, gen_db=False,
         )
@@ -803,8 +803,8 @@ class TestBottleSuite(unittest.TestCase):
         os.mkdir(os.path.join(tmp_dir, "vendor"))
         with open(os.path.join(tmp_dir, "vendor", "foo.js"), "w") as f:
             f.write("window.Redoc = {};")
-        with mock.patch("bottle_suite.bottle_suite.DIST", tmp_dir):
-            bs = BottleSuite(
+        with mock.patch("bottler.core.DIST", tmp_dir):
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, dashboard=True, jwt="k", sqlite=False,
                 sql=False, gen_res=False, gen_db=False,
             )
@@ -818,8 +818,8 @@ class TestBottleSuite(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp_dir)
         with open(os.path.join(tmp_dir, "index.html"), "w") as f:
             f.write("<html>spa shell</html>")
-        with mock.patch("bottle_suite.bottle_suite.DIST", tmp_dir):
-            bs = BottleSuite(
+        with mock.patch("bottler.core.DIST", tmp_dir):
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, dashboard=True, jwt="k", sqlite=False,
                 sql=False, gen_res=False, gen_db=False,
             )
@@ -829,9 +829,9 @@ class TestBottleSuite(unittest.TestCase):
         self.assertEqual(resp.body, b"<html>spa shell</html>")
 
     def test_setupDashboard_wiresOwnTokenPath_leavesTokenAlone(self):
-        from bottle_suite.plugins.jwt import authFunc
+        from bottler.plugins.jwt import authFunc
 
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, dashboard=True, jwt="k", sqlite=False,
             sql=False, gen_res=False, gen_db=False,
         )
@@ -842,14 +842,14 @@ class TestBottleSuite(unittest.TestCase):
         self.assertTrue(any(r.rule == "/dashboard/token" for r in bs.routes))
 
     def test_setupDashboard_dictConfig_enabledKeyRespected(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, dashboard={"enabled": False}, jwt="k",
             sqlite=False, sql=False, gen_res=False, gen_db=False,
         )
         self.assertIsNone(bs.dashboard_token)
         self.assertFalse(any(r.rule.startswith("/dashboard") for r in bs.routes))
 
-        bs2 = BottleSuite(
+        bs2 = Bottler(
             cfg_file=NONEXISTENT_CFG, dashboard={"enabled": True}, jwt="k",
             sqlite=False, sql=False, gen_res=False, gen_db=False,
         )
@@ -860,7 +860,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_dashboardMissingJwt_nonInteractive_raises(self):
         with mock.patch("sys.stdin.isatty", return_value=False):
             with self.assertRaises(Exception):
-                BottleSuite(
+                Bottler(
                     cfg_file=NONEXISTENT_CFG, dashboard=True, jwt=False,
                     sqlite=False, sql=False, gen_res=False, gen_db=False,
                 )
@@ -868,7 +868,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_dashboardMissingRest_nonInteractive_raises(self):
         with mock.patch("sys.stdin.isatty", return_value=False):
             with self.assertRaises(Exception):
-                BottleSuite(
+                Bottler(
                     cfg_file=NONEXISTENT_CFG, dashboard=True, jwt="k", rest=False,
                     sqlite=False, sql=False, gen_res=False, gen_db=False,
                 )
@@ -876,7 +876,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_dashboardMissingBoth_nonInteractive_raises(self):
         with mock.patch("sys.stdin.isatty", return_value=False):
             with self.assertRaises(Exception):
-                BottleSuite(
+                Bottler(
                     cfg_file=NONEXISTENT_CFG, dashboard=True, jwt=False, rest=False,
                     sqlite=False, sql=False, gen_res=False, gen_db=False,
                 )
@@ -886,7 +886,7 @@ class TestBottleSuite(unittest.TestCase):
         with mock.patch("sys.stdin.isatty", return_value=True), mock.patch(
             "builtins.input", return_value="y"
         ):
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=path, dashboard=True, jwt="k", rest=False,
                 sqlite=False, sql=False, gen_res=False, gen_db=False,
             )
@@ -899,7 +899,7 @@ class TestBottleSuite(unittest.TestCase):
         with mock.patch("sys.stdin.isatty", return_value=True), mock.patch(
             "builtins.input", return_value=""
         ):
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=path, dashboard=True, jwt=False, sqlite=False,
                 sql=False, gen_res=False, gen_db=False,
             )
@@ -912,7 +912,7 @@ class TestBottleSuite(unittest.TestCase):
         with mock.patch("sys.stdin.isatty", return_value=True), mock.patch(
             "builtins.input", return_value="yes"
         ):
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=path, dashboard=True, jwt=False, rest=False,
                 sqlite=False, sql=False, gen_res=False, gen_db=False,
             )
@@ -925,7 +925,7 @@ class TestBottleSuite(unittest.TestCase):
         with mock.patch("sys.stdin.isatty", return_value=True), mock.patch(
             "builtins.input", return_value="n"
         ):
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, dashboard=True, jwt=False, rest=False,
                 sqlite=False, sql=False, gen_res=False, gen_db=False,
             )
@@ -938,7 +938,7 @@ class TestBottleSuite(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             os.chdir(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, rest=True, gen_res=True, gen_db=False,
                 jwt=False, sqlite=False, sql=False,
             )
@@ -953,7 +953,7 @@ class TestBottleSuite(unittest.TestCase):
         if was_present:
             sys.path.remove(cwd)
         try:
-            BottleSuite(gen_res=True, gen_db=False)
+            Bottler(gen_res=True, gen_db=False)
             self.assertNotIn(cwd, sys.path)
             self.assertNotIn("resources", sys.modules)
             self.assertFalse(any(n.startswith("resources.") for n in sys.modules))
@@ -962,7 +962,7 @@ class TestBottleSuite(unittest.TestCase):
                 sys.path.insert(0, cwd)
 
     def test_importResourcesDir_globalApiPrefix_prependsResourceRoutes(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt=False,
             sqlite=False, sql=False, gen_res=True, gen_db=False,
         )
@@ -977,7 +977,7 @@ class TestBottleSuite(unittest.TestCase):
         # "" as a class attribute -- it must stay unprefixed even when the
         # app's own global api_prefix is set, the way a root-mounted SPA/
         # static-file resource needs to.
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, api_prefix="/api", jwt=False,
             sqlite=False, sql=False, gen_res=True, gen_db=False,
         )
@@ -999,7 +999,7 @@ class TestBottleSuite(unittest.TestCase):
         path = self._writeCfg(
             '[resources.catchall_override_resource]\npaths = ["/", "/<path:path>"]\n'
         )
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, api_prefix="/api", sqlite=tmp_db, jwt=False,
             gen_res=True, gen_db=True,
         )
@@ -1018,7 +1018,7 @@ class TestBottleSuite(unittest.TestCase):
         if not was_present:
             sys.path.insert(0, cwd)
         try:
-            BottleSuite(gen_res=True, gen_db=False)
+            Bottler(gen_res=True, gen_db=False)
             self.assertIn(cwd, sys.path)
             self.assertNotIn("resources", sys.modules)
         finally:
@@ -1038,7 +1038,7 @@ class TestBottleSuite(unittest.TestCase):
                 return {}
 
         path = self._writeCfg('[resources.boolroles.roles]\nget = ["admin"]\n')
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1048,7 +1048,7 @@ class TestBottleSuite(unittest.TestCase):
 
     # --- createResForDB ---
     def test_createResForDB_misconfigured_raises(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, rest=False, sqlite=False, sql=False,
             jwt=False, gen_res=False, gen_db=False,
         )
@@ -1065,7 +1065,7 @@ class TestBottleSuite(unittest.TestCase):
             [{"name": "nokey"}],
             [{"Field": "name", "Type": "TEXT", "Null": "YES", "Default": None, "Key": ""}],
         ]
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             sqlite=False, jwt=False, gen_res=False, gen_db=False,
@@ -1076,7 +1076,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_createResForDB_apiPrefix_prependsGeneratedRoutes(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, api_prefix="/api", sqlite=tmp_db,
             jwt=False, gen_res=False, gen_db=True,
         )
@@ -1095,7 +1095,7 @@ class TestBottleSuite(unittest.TestCase):
         path = self._writeCfg(
             f'sqlite = "{tmp_db}"\n[resources.animals]\npaths = ["/nmls", "/critters"]\n'
         )
-        bs = BottleSuite(cfg_file=path, jwt=False, gen_res=False, gen_db=True)
+        bs = Bottler(cfg_file=path, jwt=False, gen_res=False, gen_db=True)
         app = webtest.TestApp(bs)
         self.assertEqual(app.get("/nmls").status_code, 200)
         self.assertEqual(app.get("/critters").status_code, 200)
@@ -1107,7 +1107,7 @@ class TestBottleSuite(unittest.TestCase):
         # per-table `endpoints` list stays empty -- addResource is skipped.
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=True,
         )
@@ -1119,7 +1119,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_getDBCursor_sqlite(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1133,7 +1133,7 @@ class TestBottleSuite(unittest.TestCase):
         patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
         patcher.start()
         self.addCleanup(patcher.stop)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             sqlite=False, jwt=False, gen_res=False, gen_db=False,
@@ -1143,7 +1143,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_getDBCursor_neitherConfigured_raisesClearException(self):
         # Regression for fix #11.
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False, sql=False, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1151,7 +1151,7 @@ class TestBottleSuite(unittest.TestCase):
             bs.getDBCursor()
 
     def test_getDBTables_neitherConfigured_raisesClearException(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False, sql=False, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1168,7 +1168,7 @@ class TestBottleSuite(unittest.TestCase):
             [{"name": "widgets"}],
             [{"Field": "id", "Type": "INTEGER", "Null": "NO", "Default": None, "Key": "PRI"}],
         ]
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             sqlite=False, jwt=False, gen_res=False, gen_db=False,
@@ -1186,7 +1186,7 @@ class TestBottleSuite(unittest.TestCase):
         mock_conn = mock.MagicMock()
         mock_conn.cursor.return_value = object()
         with mock.patch("pymysql.connect", return_value=mock_conn):
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG,
                 sql={"host": "h", "user": "u", "password": "p", "database": "d"},
                 sqlite=False, jwt=False, gen_res=False, gen_db=False,
@@ -1199,7 +1199,7 @@ class TestBottleSuite(unittest.TestCase):
         # Regression for fix #13 (self.sqlite.dbfile -> sql_config["database"]).
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1209,7 +1209,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_createTable_invalidName_raisesValueError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1219,7 +1219,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_createTable_duplicateName_raisesOperationalError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1230,7 +1230,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_renameColumn(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1245,7 +1245,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_addColumn(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1260,7 +1260,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_notnullNoDefault_getsPlaceholder(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1277,7 +1277,7 @@ class TestBottleSuite(unittest.TestCase):
         # branch executes; still commits and reloads without error.
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1290,7 +1290,7 @@ class TestBottleSuite(unittest.TestCase):
         self.assertEqual(sorted(f["name"] for f in fields), ["id", "name"])
 
     def test_createTable_mysqlConfigured_isNoop_characterized(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1305,7 +1305,7 @@ class TestBottleSuite(unittest.TestCase):
         patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
         patcher.start()
         self.addCleanup(patcher.stop)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1327,7 +1327,7 @@ class TestBottleSuite(unittest.TestCase):
         patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
         patcher.start()
         self.addCleanup(patcher.stop)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1348,7 +1348,7 @@ class TestBottleSuite(unittest.TestCase):
         patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
         patcher.start()
         self.addCleanup(patcher.stop)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1367,7 +1367,7 @@ class TestBottleSuite(unittest.TestCase):
         patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
         patcher.start()
         self.addCleanup(patcher.stop)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1381,7 +1381,7 @@ class TestBottleSuite(unittest.TestCase):
         self.assertIn("DEFAULT ''", sql)
 
     def test_alterDBTable_noDbConfigured_noop(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False, sql=False, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1398,7 +1398,7 @@ class TestBottleSuite(unittest.TestCase):
         patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
         patcher.start()
         self.addCleanup(patcher.stop)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1413,7 +1413,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_invalidTableName_raisesValueError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1427,7 +1427,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_addColumn_invalidColumnName_raisesValueError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1441,7 +1441,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_renameColumn_invalidNewName_raisesValueError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1455,7 +1455,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_addColumn_invalidDatatype_raisesValueError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1469,7 +1469,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_addColumn_emptyDatatype_defaultsToText(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1485,7 +1485,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_addColumn_invalidDefaultValue_raisesValueError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1499,7 +1499,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_addColumn_validDefaultValue(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1522,7 +1522,7 @@ class TestBottleSuite(unittest.TestCase):
         self.addCleanup(os.remove, tmp_db)
         cfg_dir, cfg_path = db_fixtures.temp_cfg_pointing_at(tmp_db)
         self.addCleanup(shutil.rmtree, cfg_dir)
-        bs = BottleSuite(cfg_file=cfg_path, jwt=False, gen_res=False, gen_db=False)
+        bs = Bottler(cfg_file=cfg_path, jwt=False, gen_res=False, gen_db=False)
         fields = bs.getDBTable(bs.getDBCursor(), "animals")
         name_field = next(f for f in fields if f["name"] == "name")
         bs.alterDBTable(
@@ -1534,7 +1534,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_dropColumn_unknownCid_raisesValueError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1544,7 +1544,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_dropColumn_primaryKey_raisesValueError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1556,7 +1556,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_dropColumn_lastColumn_raisesValueError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1568,7 +1568,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_alterDBTable_sqlite_dropColumn_oldSqliteVersion_raisesRuntimeError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1586,7 +1586,7 @@ class TestBottleSuite(unittest.TestCase):
         patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
         patcher.start()
         self.addCleanup(patcher.stop)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1602,7 +1602,7 @@ class TestBottleSuite(unittest.TestCase):
         patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
         patcher.start()
         self.addCleanup(patcher.stop)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1617,7 +1617,7 @@ class TestBottleSuite(unittest.TestCase):
         patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
         patcher.start()
         self.addCleanup(patcher.stop)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1632,7 +1632,7 @@ class TestBottleSuite(unittest.TestCase):
         patcher, mock_conn, cursor = patch_pymysql_connect(cursor)
         patcher.start()
         self.addCleanup(patcher.stop)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1646,7 +1646,7 @@ class TestBottleSuite(unittest.TestCase):
         self.addCleanup(os.remove, tmp_db)
         cfg_dir, cfg_path = db_fixtures.temp_cfg_pointing_at(tmp_db)
         self.addCleanup(shutil.rmtree, cfg_dir)
-        bs = BottleSuite(cfg_file=cfg_path, jwt=False, gen_res=False, gen_db=False)
+        bs = Bottler(cfg_file=cfg_path, jwt=False, gen_res=False, gen_db=False)
         bs.getResourceConfig("predations")["paths"] = ["/predations"]
         bs.dropTable("predations")
         self.assertNotIn("predations", bs.getDBTables())
@@ -1655,7 +1655,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_dropTable_unknownTable_raisesValueError(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, sqlite=tmp_db, jwt=False,
             gen_res=False, gen_db=False,
         )
@@ -1676,7 +1676,7 @@ class TestBottleSuite(unittest.TestCase):
             [{"name": "widgets"}],
             [{"Field": "id", "Type": "INTEGER", "Null": "NO", "Default": None, "Key": "PRI"}],
         ]
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             jwt=False, gen_res=False, gen_db=False,
@@ -1691,7 +1691,7 @@ class TestBottleSuite(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             os.chdir(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -1710,7 +1710,7 @@ class TestBottleSuite(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             os.chdir(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -1723,7 +1723,7 @@ class TestBottleSuite(unittest.TestCase):
     # --- removePath ---
     def test_removePath_validIndex_removes(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1734,7 +1734,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_removePath_outOfRangeIndex_noop(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1744,7 +1744,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_removePath_noPathsYet_noop(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1754,7 +1754,7 @@ class TestBottleSuite(unittest.TestCase):
     # --- getResourceConfig / updatePaths / updateRoles / saveConfig ---
     def test_getResourceConfig_freshConfigNoResourcesKey(self):
         # Regression for fix #5.
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1765,7 +1765,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updatePaths_indexOutOfRange_appends(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1774,7 +1774,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updatePaths_validIndex_overwrites(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1784,7 +1784,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updateRoles_stringTrueFalse(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1795,7 +1795,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updateRoles_commaSeparatedString(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1807,7 +1807,7 @@ class TestBottleSuite(unittest.TestCase):
     def test_updateRoles_listInput_noCrash(self):
         # Regression for fix #6.
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1816,7 +1816,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updateRoles_boolInput_noCrash(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1825,7 +1825,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updateRoles_bulkMethodList_appliesToAll(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1837,7 +1837,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updateRolesBulk_multipleResources_bothUpdated(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1852,7 +1852,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updateRolesBulk_methodList_appliesToAll(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1865,7 +1865,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updateRolesBulk_savesAndReloadsExactlyOnce(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1884,7 +1884,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updateRolesBulk_emptyList_stillSavesOnceNoCrash(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1897,7 +1897,7 @@ class TestBottleSuite(unittest.TestCase):
 
     def test_updateRolesBulk_missingKey_raisesKeyError(self):
         path = self._writeCfg("")
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1910,7 +1910,7 @@ class TestBottleSuite(unittest.TestCase):
         # likewise caught by the bare except, so self.cfg starts as {}.
         tmp_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp_dir)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=tmp_dir, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -1922,7 +1922,7 @@ class TestBottleSuite(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             os.chdir(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -1947,7 +1947,7 @@ class TestBottleSuite(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             os.chdir(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -1962,7 +1962,7 @@ class TestBottleSuite(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         try:
             os.chdir(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
@@ -1974,12 +1974,12 @@ class TestBottleSuite(unittest.TestCase):
             shutil.rmtree(tmp)
 
     def test_reloadServer_writesFile(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
         bs.reloadServer()
-        from bottle_suite import reload as reload_module
+        from bottler import reload as reload_module
 
         with open(reload_module.__file__) as f:
             content = f.read()
@@ -2007,7 +2007,7 @@ class TestBottleSuite(unittest.TestCase):
 
     # --- resource_names ---
     def test_resourceNames_noRest_returnsEmptySet(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, rest=False, jwt=False, sqlite=False,
             sql=False, gen_res=False, gen_db=False,
         )
@@ -2019,7 +2019,7 @@ class TestBottleSuite(unittest.TestCase):
                 col[0]: row[idx] for idx, col in enumerate(cursor.description)
             }
             db = conn.cursor()
-            table = self.bottle_suite.getDBTable(db, "animals")
+            table = self.bottler.getDBTable(db, "animals")
             self.assertDictEqual(
                 table[0],
                 {
@@ -2033,15 +2033,15 @@ class TestBottleSuite(unittest.TestCase):
         conn.close()
 
     def test_getSQLiteTables(self):
-        tables = self.bottle_suite.getDBTables()
+        tables = self.bottler.getDBTables()
         self.assertIn("animals", tables)
         self.assertIn("predations", tables)
 
     def test_genResoursesForDB(self):
-        self.bottle_suite = BottleSuite()
-        self.app = webtest.TestApp(self.bottle_suite)
-        self.assertIn("Animals", self.bottle_suite.resource_names)
-        self.assertIn("Predations", self.bottle_suite.resource_names)
+        self.bottler = Bottler()
+        self.app = webtest.TestApp(self.bottler)
+        self.assertIn("Animals", self.bottler.resource_names)
+        self.assertIn("Predations", self.bottler.resource_names)
         self.assertEqual("dog", self.app.get("/animals/1").json["name"])
         self.assertEqual(6, self.app.get("/predations/1").json["predator"])
 

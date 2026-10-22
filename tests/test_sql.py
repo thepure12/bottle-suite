@@ -4,7 +4,7 @@ from unittest import mock
 import bottle
 import pymysql
 import pymysql.err
-from bottle_suite.plugins.sql import SQLPlugin, Engine, sqlPlugin, sqlitePlugin
+from bottler.plugins.sql import SQLPlugin, Engine, sqlPlugin, sqlitePlugin
 from mysql_mock import make_mysql_cursor, patch_pymysql_connect
 
 

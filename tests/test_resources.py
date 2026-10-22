@@ -9,20 +9,20 @@ import toml
 import webtest
 import jwt as pyjwt
 from datetime import datetime, timedelta
-from bottle_suite import BottleSuite
-from bottle_suite.resources import (
+from bottler import Bottler
+from bottler.resources import (
     Config,
     DataTypes,
     AllResources,
     PythonResources,
     ResourceRoles,
 )
-from bottle_suite.plugins import rest as bottle_rest
+from bottler.plugins import rest as bottle_rest
 import db_fixtures
 
-NONEXISTENT_CFG = "no_such_bottle_suite_cfg.toml"
-# Matches the committed tests/bottle_suite.toml's [jwt] jwt_key -- any
-# BottleSuite built from a copy of that file (db_fixtures.temp_cfg_copy())
+NONEXISTENT_CFG = "no_such_bottler_cfg.toml"
+# Matches the committed tests/bottler.toml's [jwt] jwt_key -- any
+# Bottler built from a copy of that file (db_fixtures.temp_cfg_copy())
 # has JWT enabled with this key, even when jwt=False is also passed,
 # since toml values always override constructor args.
 JWT_KEY = "secret"
@@ -47,11 +47,11 @@ class CustomResource(bottle_rest.Resource):
 
 class TestConfigResource(unittest.TestCase):
     def setUp(self):
-        # bottle_suite.toml's own values (e.g. sqlite="resources.db") always
+        # bottler.toml's own values (e.g. sqlite="resources.db") always
         # win over constructor args once loaded, so a copied cfg_file is
         # sufficient isolation here -- Config's get/put never touch DB rows.
         self.cfg_dir, self.cfg_path = db_fixtures.temp_cfg_copy()
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=self.cfg_path,
             jwt=False,
             gen_res=False,
@@ -67,13 +67,13 @@ class TestConfigResource(unittest.TestCase):
         shutil.rmtree(self.cfg_dir)
 
     def test_get_dumpsToml(self):
-        resp = self.app.get("/bottle_suite_cfg")
+        resp = self.app.get("/bottler_cfg")
         self.assertEqual(resp.status_code, 200)
         dumped = toml.loads(resp.text)
         self.assertEqual(dumped, self.bs.cfg)
 
     def test_put_validToml_replacesConfig(self):
-        resp = self.app.put_json("/bottle_suite_cfg", {"config": "cors = false\n"})
+        resp = self.app.put_json("/bottler_cfg", {"config": "cors = false\n"})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(self.bs.cfg, {"cors": False})
         on_disk = toml.load(self.cfg_path)
@@ -88,33 +88,33 @@ class TestConfigResource(unittest.TestCase):
         # Built-in meta-resources default to requiring a valid JWT --
         # confirms the endpoint is no longer wide open by default.
         app = webtest.TestApp(self.bs)  # fresh TestApp, no Authorization header
-        resp = app.get("/bottle_suite_cfg", expect_errors=True)
+        resp = app.get("/bottler_cfg", expect_errors=True)
         self.assertEqual(resp.status_code, 400)
 
     def test_get_tomlRoleOverride_appliedOnTopOfDefault(self):
-        # resources.<name>.roles in bottle_suite.toml still layers on top of
+        # resources.<name>.roles in bottler.toml still layers on top of
         # the built-in "any authenticated user" default -- a token without
         # the configured role is rejected even though it's otherwise valid.
         cfg_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, cfg_dir)
-        cfg_path = os.path.join(cfg_dir, "bottle_suite.toml")
+        cfg_path = os.path.join(cfg_dir, "bottler.toml")
         with open(cfg_path, "w") as f:
             f.write(
                 '[jwt]\njwt_key = "secret"\n\n'
-                '[resources.bottle_suite_cfg.roles]\nget = ["admin"]\n'
+                '[resources.bottler_cfg.roles]\nget = ["admin"]\n'
             )
-        bs = BottleSuite(cfg_file=cfg_path, gen_res=False, gen_db=False)
+        bs = Bottler(cfg_file=cfg_path, gen_res=False, gen_db=False)
         app = webtest.TestApp(bs)
         app.authorization = ("Bearer", _valid_token())
-        resp = app.get("/bottle_suite_cfg", expect_errors=True)
+        resp = app.get("/bottler_cfg", expect_errors=True)
         self.assertEqual(resp.status_code, 403)
         app.authorization = ("Bearer", _valid_token(roles=["admin"]))
-        resp = app.get("/bottle_suite_cfg")
+        resp = app.get("/bottler_cfg")
         self.assertEqual(resp.status_code, 200)
 
     def test_put_malformedToml_400(self):
         resp = self.app.put_json(
-            "/bottle_suite_cfg", {"config": "not: valid: toml: ["}, expect_errors=True
+            "/bottler_cfg", {"config": "not: valid: toml: ["}, expect_errors=True
         )
         self.assertEqual(resp.status_code, 400)
         self.assertIn("message", resp.json)
@@ -124,7 +124,7 @@ class TestDataTypesResource(unittest.TestCase):
     def test_get_sqliteConfigured_returnsList(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         try:
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG,
                 jwt=False,
                 sqlite=tmp_db,
@@ -139,7 +139,7 @@ class TestDataTypesResource(unittest.TestCase):
             os.remove(tmp_db)
 
     def test_get_mysqlConfigured_returnsList(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             jwt=False,
             sqlite=False,
@@ -153,14 +153,14 @@ class TestDataTypesResource(unittest.TestCase):
         self.assertIn("VARCHAR(255)", resp.json["datatypes"])
 
     def test_options_isNoop(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
         self.assertIsNone(DataTypes(bs).options())
 
     def test_get_noSqlite_returnsEmptyBody(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             jwt=False,
             sqlite=False,
@@ -177,7 +177,7 @@ class TestDataTypesResource(unittest.TestCase):
 class TestAllResourcesGet(unittest.TestCase):
     def setUp(self):
         self.tmp_db = db_fixtures.temp_sqlite_copy()
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             jwt=False,
             sqlite=self.tmp_db,
@@ -211,7 +211,7 @@ class TestAllResourcesGet(unittest.TestCase):
 
     def test_single_found_partialRolesConfigured_skipsExisting(self):
         path = self._writeCfg('[resources.animals.roles]\nget = true\n')
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=path, jwt=False, sqlite=self.tmp_db, gen_res=False,
             gen_db=True,
         )
@@ -302,7 +302,7 @@ class TestAllResourcesPost(unittest.TestCase):
     def test_post_sqlite_createsTable(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         try:
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG,
                 jwt=False,
                 sqlite=tmp_db,
@@ -318,7 +318,7 @@ class TestAllResourcesPost(unittest.TestCase):
             os.remove(tmp_db)
 
     def test_post_mysqlConfigured_noopCharacterized(self):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             jwt=False,
             sqlite=False,
@@ -333,7 +333,7 @@ class TestAllResourcesPost(unittest.TestCase):
     def test_post_invalidName_400(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         try:
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG,
                 jwt=False,
                 sqlite=tmp_db,
@@ -352,7 +352,7 @@ class TestAllResourcesPost(unittest.TestCase):
     def test_post_duplicateName_400(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         try:
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG,
                 jwt=False,
                 sqlite=tmp_db,
@@ -374,7 +374,7 @@ class TestAllResourcesPatch(unittest.TestCase):
     def setUp(self):
         self.tmp_db = db_fixtures.temp_sqlite_copy()
         self.cfg_dir, self.cfg_path = db_fixtures.temp_cfg_pointing_at(self.tmp_db)
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=self.cfg_path,
             jwt=False,
             sqlite=self.tmp_db,
@@ -521,7 +521,7 @@ class TestAllResourcesDelete(unittest.TestCase):
     def setUp(self):
         self.tmp_db = db_fixtures.temp_sqlite_copy()
         self.cfg_dir, self.cfg_path = db_fixtures.temp_cfg_pointing_at(self.tmp_db)
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=self.cfg_path,
             jwt=False,
             sqlite=self.tmp_db,
@@ -563,7 +563,7 @@ class TestPythonResources(unittest.TestCase):
         self.cwd = os.getcwd()
         self.tmp = tempfile.mkdtemp()
         os.chdir(self.tmp)
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
@@ -710,7 +710,7 @@ class TestResourceRoles(unittest.TestCase):
         self.cfg_dir, self.cfg_path = db_fixtures.temp_cfg_pointing_at(self.tmp_db)
         self.project_dir = tempfile.mkdtemp()
         os.chdir(self.project_dir)
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=self.cfg_path,
             jwt=False,
             sqlite=self.tmp_db,
@@ -759,7 +759,7 @@ class TestResourceRoles(unittest.TestCase):
         cwd = os.getcwd()
         try:
             os.chdir(tmp)
-            bs = BottleSuite(
+            bs = Bottler(
                 cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )

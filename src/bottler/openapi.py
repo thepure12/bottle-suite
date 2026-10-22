@@ -1,4 +1,4 @@
-"""Builds an OpenAPI 3.0 spec by walking the routes/resources BottleSuite has
+"""Builds an OpenAPI 3.0 spec by walking the routes/resources Bottler has
 already registered at runtime -- no separate spec is maintained by hand, so
 the documented API surface can never drift from what is actually running."""
 import re
@@ -10,7 +10,7 @@ except ImportError:  # pragma: no cover -- Python <3.8 fallback
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover -- never True at runtime
-    from .bottle_suite import BottleSuite
+    from .core import Bottler
 
 PATH_PARAM_RE = re.compile(r"<(\w+)(?::[^>]*)?>")
 EXCLUDED_PREFIXES = (
@@ -18,7 +18,7 @@ EXCLUDED_PREFIXES = (
     "/openapi.json",
     "/_resources",
     "/_datatypes",
-    "/bottle_suite_cfg",
+    "/bottler_cfg",
     "/_python_resources",
     "/_roles",
 )
@@ -178,23 +178,23 @@ def _plainOperation(method: str, callback, skip: set) -> dict:
     return operation
 
 
-def _infoBlock(app: "BottleSuite") -> dict:
+def _infoBlock(app: "Bottler") -> dict:
     raw = app.cfg.get("openapi", {})
     cfg = raw if isinstance(raw, dict) else {}
     try:
-        pkg_version = _pkg_version("bottle_suite")
+        pkg_version = _pkg_version("bottler")
     except PackageNotFoundError:
         pkg_version = "0.0.0"
     return {
-        "title": cfg.get("title", "Bottle Suite API"),
+        "title": cfg.get("title", "Bottler API"),
         "version": cfg.get("version", pkg_version),
         "description": cfg.get(
-            "description", "Auto-generated from the running BottleSuite app."
+            "description", "Auto-generated from the running Bottler app."
         ),
     }
 
 
-def buildSpec(app: "BottleSuite") -> dict:
+def buildSpec(app: "Bottler") -> dict:
     db_tables = app.getDBTables() if (app.sql or app.sqlite) else {}
     schemas = {}
     paths = {}

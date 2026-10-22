@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import toml
 
-from bottle_suite.cli import create
+from bottler.cli import create
 
 
 class TestGetResourceName(unittest.TestCase):
@@ -77,7 +77,7 @@ class TestResourceFileAndConfig(unittest.TestCase):
 
     def test_updateResourceConfig_creates_new_cfg(self):
         create.updateResourceConfig("widget")
-        cfg_path = os.path.join(self.tmpdir, "bottle_suite.toml")
+        cfg_path = os.path.join(self.tmpdir, "bottler.toml")
         self.assertTrue(os.path.exists(cfg_path))
         with open(cfg_path) as f:
             written = toml.load(f)
@@ -86,10 +86,10 @@ class TestResourceFileAndConfig(unittest.TestCase):
         )
 
     def test_updateResourceConfig_merges_existing_cfg(self):
-        with open("bottle_suite.toml", "w") as f:
+        with open("bottler.toml", "w") as f:
             toml.dump({"cors": True, "resources": {"other": {"paths": ["/other"]}}}, f)
         create.updateResourceConfig("widget")
-        with open("bottle_suite.toml") as f:
+        with open("bottler.toml") as f:
             written = toml.load(f)
         self.assertTrue(written["cors"])
         self.assertEqual(written["resources"]["other"]["paths"], ["/other"])
@@ -98,10 +98,10 @@ class TestResourceFileAndConfig(unittest.TestCase):
         )
 
     def test_resource_end_to_end(self):
-        with patch("sys.argv", ["bottle-suite-resource", "end_to_end"]):
+        with patch("sys.argv", ["bottler-resource", "end_to_end"]):
             create.resource()
         self.assertTrue(os.path.exists("resources/end_to_end.py"))
-        with open("bottle_suite.toml") as f:
+        with open("bottler.toml") as f:
             written = toml.load(f)
         self.assertEqual(
             written["resources"]["end_to_end"]["paths"],
@@ -125,21 +125,21 @@ class TestSetupDashboardAuth(unittest.TestCase):
     def test_declines_writes_nothing(self):
         with patch("builtins.input", return_value="n"):
             create.setupDashboardAuth(self.tmpdir)
-        self.assertFalse(os.path.exists(os.path.join(self.tmpdir, "bottle_suite.toml")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmpdir, "bottler.toml")))
         self.assertNotIn("dashboard", create.cfg)
 
     def test_empty_password_skips(self):
         with patch("builtins.input", side_effect=["y", "admin", ""]):
             create.setupDashboardAuth(self.tmpdir)
         self.assertNotIn("dashboard", create.cfg)
-        self.assertFalse(os.path.exists(os.path.join(self.tmpdir, "bottle_suite.toml")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmpdir, "bottler.toml")))
 
     def test_sets_up_credentials(self):
         with patch("builtins.input", side_effect=["y", "myadmin", "hunter2"]):
             create.setupDashboardAuth(self.tmpdir)
         self.assertEqual(create.cfg["dashboard"]["username"], "myadmin")
         self.assertTrue(create.cfg["dashboard"]["password_hash"])
-        with open(os.path.join(self.tmpdir, "bottle_suite.toml")) as f:
+        with open(os.path.join(self.tmpdir, "bottler.toml")) as f:
             written = toml.load(f)
         self.assertEqual(written["dashboard"]["username"], "myadmin")
 

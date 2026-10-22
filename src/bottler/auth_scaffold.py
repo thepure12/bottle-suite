@@ -7,7 +7,7 @@ TEMPLATE = '''def authenticate(username=None, password=None, **kwargs):
     Return a truthy dict payload (e.g. {"user": ..., "roles": [...]}) on
     success -- it's encoded into the issued JWT -- or a falsy value to
     reject the login attempt. This stub rejects everything by default; see
-    example/app.py in the bottle_suite repo for a real PBKDF2-based
+    example/app.py in the bottler repo for a real PBKDF2-based
     implementation to build from.
     """
     return None

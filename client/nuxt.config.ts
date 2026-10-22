@@ -2,9 +2,9 @@ import { fileURLToPath } from 'node:url'
 
 // This dashboard is generated statically (`nuxt generate`) and served
 // directly by the Python Bottle backend (see setupDashboard/DIST in
-// src/bottle_suite/bottle_suite.py) - there is no Nitro/Node server running
+// src/bottler/core.py) - there is no Nitro/Node server running
 // in production, so `ssr` must stay false and the output must land in
-// src/bottle_suite/dashboard/dist with a flat _nuxt/ asset folder.
+// src/bottler/dashboard/dist with a flat _nuxt/ asset folder.
 export default defineNuxtConfig({
   ssr: false,
 
@@ -35,7 +35,7 @@ export default defineNuxtConfig({
   app: {
     baseURL: '/dashboard/',
     head: {
-      title: 'Bottle Suite',
+      title: 'Bottler',
       // No hardcoded class here - @nuxtjs/color-mode (via colorMode below)
       // owns the <html> class and toggles it at runtime; a static 'dark'
       // here would linger alongside 'light' once toggled and always win
@@ -78,7 +78,7 @@ export default defineNuxtConfig({
 
   nitro: {
     output: {
-      publicDir: fileURLToPath(new URL('../src/bottle_suite/dashboard/dist', import.meta.url)),
+      publicDir: fileURLToPath(new URL('../src/bottler/dashboard/dist', import.meta.url)),
     },
   },
 

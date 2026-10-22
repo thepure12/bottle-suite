@@ -8,9 +8,9 @@ import jwt as pyjwt
 import webtest
 
 import db_fixtures
-from bottle_suite import BottleSuite
-from bottle_suite.plugins import rest as bottle_rest
-from bottle_suite.resources import _buildRoles
+from bottler import Bottler
+from bottler.plugins import rest as bottle_rest
+from bottler.resources import _buildRoles
 
 JWT_KEY = "secret"
 
@@ -50,7 +50,7 @@ class TestDefaultRoles(unittest.TestCase):
         return path
 
     def _app(self, cfg="", resource=None, **kwargs):
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=self._writeCfg(cfg), sqlite=False, sql=False,
             gen_res=False, gen_db=False, **kwargs,
         )
@@ -132,7 +132,7 @@ class TestDefaultRoles(unittest.TestCase):
     def test_dbResources_getDefault(self):
         tmp_db = db_fixtures.temp_sqlite_copy()
         self.addCleanup(os.remove, tmp_db)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=self._writeCfg(f'sqlite = "{tmp_db}"\ndefault_roles = true\n'),
             gen_res=False, gen_db=True,
         )

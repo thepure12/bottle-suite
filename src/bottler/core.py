@@ -33,11 +33,11 @@ from decimal import Decimal
 from pathlib import Path
 
 
-DIST = f"{Path(__file__).parent.parent.resolve()}/bottle_suite/dashboard/dist"
+DIST = f"{Path(__file__).parent.parent.resolve()}/bottler/dashboard/dist"
 
 # Settings a mounted child app always takes from its parent (see
 # setupMounts): one token, one CORS policy and one URL space for the whole
-# process, whatever the child's own bottle_suite.toml says.
+# process, whatever the child's own bottler.toml says.
 MOUNT_INHERITED = ("jwt", "cors", "rest", "dashboard", "openapi", "api_prefix")
 
 _MOUNT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -73,7 +73,7 @@ class JSONEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-class BottleSuite(Bottle):
+class Bottler(Bottle):
     def __init__(
         self,
         cors: Union[bool, dict] = True,
@@ -87,7 +87,7 @@ class BottleSuite(Bottle):
         gen_res: bool = True,
         gen_auth: bool = True,
         gen_hooks: bool = True,
-        cfg_file: str = "bottle_suite.toml",
+        cfg_file: str = "bottler.toml",
         dashboard: bool = False,
         openapi: Union[bool, dict] = True,
         run_args: dict = {},
@@ -108,13 +108,13 @@ class BottleSuite(Bottle):
             self.install(json_plugin)
         # Package mode: resources come from the installed package
         # `<package>.resources` instead of ./resources, and the package's
-        # config lives in base_dir (its bottle_suite.toml, plus whatever the
+        # config lives in base_dir (its bottler.toml, plus whatever the
         # package itself reads from there via app.base_dir).
         self.package = package
         self.base_dir = os.path.abspath(base_dir) if base_dir else None
         self.mounted = mounted
-        if self.base_dir and cfg_file == "bottle_suite.toml":
-            cfg_file = os.path.join(self.base_dir, "bottle_suite.toml")
+        if self.base_dir and cfg_file == "bottler.toml":
+            cfg_file = os.path.join(self.base_dir, "bottler.toml")
         self.cfg_file = cfg_file
         self.run_args = run_args
         try:
@@ -175,11 +175,11 @@ class BottleSuite(Bottle):
         self.setupOpenApi(openapi)
         # Runs last, after every route above is registered, so hooks.py's
         # configure(app) can freely add routes/plugins/middleware or
-        # override anything BottleSuite itself just set up.
+        # override anything Bottler itself just set up.
         self.setupHooks(gen_hooks)
 
     def _cfgValue(self, key, value):
-        """bottle_suite.toml wins over the constructor arg -- except, in a
+        """bottler.toml wins over the constructor arg -- except, in a
         mounted child, for the MOUNT_INHERITED keys its parent passed in."""
         if key in self.cfg and not (self.mounted and key in MOUNT_INHERITED):
             return self.cfg[key]
@@ -235,7 +235,7 @@ class BottleSuite(Bottle):
         else:
             raise Exception(
                 f"Dashboard requires {missing_str} to be enabled (set "
-                f"{missing_str} in {self.cfg_file} or pass to the BottleSuite "
+                f"{missing_str} in {self.cfg_file} or pass to the Bottler "
                 "constructor), or disable the dashboard."
             )
         return dashboard, rest, jwt
@@ -296,7 +296,7 @@ class BottleSuite(Bottle):
             for name, resource, paths in (
                 ("_resources", AllResources(self), ("/_resources", "/_resources/<resource>")),
                 ("_datatypes", DataTypes(self), ("/_datatypes",)),
-                ("bottle_suite_cfg", Config(self), ("/bottle_suite_cfg",)),
+                ("bottler_cfg", Config(self), ("/bottler_cfg",)),
                 (
                     "_python_resources",
                     PythonResources(self),
@@ -318,7 +318,7 @@ class BottleSuite(Bottle):
         # resources, nothing else gates access to them. Unlike those,
         # AllResources/DataTypes/Config/PythonResources/ResourceRoles are
         # singleton classes imported once at module load rather than
-        # recreated per BottleSuite() instantiation, so their route config
+        # recreated per Bottler() instantiation, so their route config
         # (stored as class attributes by Resource.setRouteConfig) is reset
         # to a clean slate first -- otherwise a later instantiation's toml
         # role config could be silently blocked by a bool leftover from an
@@ -355,7 +355,7 @@ class BottleSuite(Bottle):
         if jwt:
             if jwt is True:
                 # No explicit key given (constructor default / bare `jwt = true`
-                # in bottle_suite.toml) -- generate a random one rather than
+                # in bottler.toml) -- generate a random one rather than
                 # falling back to a hardcoded, publicly-known secret. This key
                 # is process-local and not persisted: it keeps every
                 # unconfigured deployment from sharing the same guessable
@@ -450,7 +450,7 @@ class BottleSuite(Bottle):
             return
         # Same temp-sys.path/sys.modules dance as importResourcesDir, scaled
         # down to a single top-level module instead of a package, so repeated
-        # BottleSuite() construction against different project dirs in the
+        # Bottler() construction against different project dirs in the
         # same process never serves a stale cached auth module.
         project_root = os.getcwd()
         path_added = project_root not in sys.path
@@ -477,7 +477,7 @@ class BottleSuite(Bottle):
         if not (gen and os.path.exists(os.path.join(os.getcwd(), "hooks.py"))):
             return
         # Same temp-sys.path/sys.modules dance as setupAuth/importResourcesDir,
-        # scaled down to a single top-level module, so repeated BottleSuite()
+        # scaled down to a single top-level module, so repeated Bottler()
         # construction against different project dirs in the same process
         # never serves a stale cached hooks module.
         project_root = os.getcwd()
@@ -503,7 +503,7 @@ class BottleSuite(Bottle):
         # relative imports (from . import helper) or import other modules
         # elsewhere in the project. The project root and cached
         # resources/resources.* modules are cleaned up afterwards so that
-        # repeated BottleSuite() instantiations against different projects
+        # repeated Bottler() instantiations against different projects
         # (tests, the CLI's retry loop) don't leak stale modules or a
         # stale sys.path entry between runs.
         project_root = os.getcwd()
@@ -531,7 +531,7 @@ class BottleSuite(Bottle):
     def importPackageResources(self):
         # An installed package stays cached in sys.modules (unlike
         # ./resources, which importResourcesDir purges), so its classes are
-        # reused by every BottleSuite built in this process -- see
+        # reused by every Bottler built in this process -- see
         # _resetRouteConfig for what that means for roles.
         package = f"{self.package}.resources"
         module = importlib.import_module(package)
@@ -543,11 +543,11 @@ class BottleSuite(Bottle):
         # with +=), so a cached package class would pile up roles on every
         # build. Snapshot the class's own config the first time it's seen and
         # restore it before each setRoles() instead.
-        if "_bs_route_cfg" not in resource.__dict__:
-            resource._bs_route_cfg = {
+        if "_bottler_route_cfg" not in resource.__dict__:
+            resource._bottler_route_cfg = {
                 meth: copy.deepcopy(resource.getRouteConfig(meth)) for meth in resource.Methods
             }
-        for meth, cfg in resource._bs_route_cfg.items():
+        for meth, cfg in resource._bottler_route_cfg.items():
             resource.setRouteConfig(meth, copy.deepcopy(cfg))
 
     def importResourcesFromFile(self, py_file, package="resources"):
@@ -580,7 +580,7 @@ class BottleSuite(Bottle):
                 self.rest.addResource(cls[1], *paths)
 
     def setupMounts(self, mounts):
-        """Mount each `[mounts.<name>]` package as its own child BottleSuite
+        """Mount each `[mounts.<name>]` package as its own child Bottler
         at <api_prefix>/<name>/. Each child has its own sql/sqlite, resources,
         roles and DB auto-CRUD -- the one-database limit is per app, and
         Bottle runs a mounted route with its own app's plugins (the child's
@@ -590,7 +590,7 @@ class BottleSuite(Bottle):
 
         Each entry is a package name, or a table with `package` and
         `base_dir` (that package's config folder, default <name>; relative
-        paths resolve against this app's bottle_suite.toml folder)."""
+        paths resolve against this app's bottler.toml folder)."""
         self.mounts = {}
         if not mounts:
             return
@@ -607,7 +607,7 @@ class BottleSuite(Bottle):
             if isinstance(entry, str):
                 entry = {"package": entry}
             base_dir = os.path.join(cfg_dir, entry.get("base_dir", name))
-            child = BottleSuite(
+            child = Bottler(
                 package=entry["package"],
                 base_dir=base_dir,
                 mounted=True,

@@ -1,15 +1,15 @@
 import _paths  # noqa: F401
 import unittest
 import webtest
-from bottle_suite import BottleSuite
+from bottler import Bottler
 
-NONEXISTENT_CFG = "no_such_bottle_suite_cfg.toml"
+NONEXISTENT_CFG = "no_such_bottler_cfg.toml"
 
 
 class TestCors(unittest.TestCase):
     def setUp(self):
         self.calls = []
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             cors=True,
             rest=False,
@@ -51,7 +51,7 @@ class TestCors(unittest.TestCase):
 
 class TestCorsOriginAllowlist(unittest.TestCase):
     def setUp(self):
-        self.bs = BottleSuite(
+        self.bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
             cors={"origins": ["https://allowed.example"]},
             rest=False,

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import jwt as pyjwt
 import webtest
 
-from bottle_suite import BottleSuite
+from bottler import Bottler
 
 JWT_KEY = "mount-secret"
 
@@ -19,7 +19,7 @@ JWT_KEY = "mount-secret"
 # tests prove two mounted packages can share resource names. It reads from the
 # injected `db`, which only works if the child's own SQL plugin runs.
 ITEMS_RESOURCE = '''
-from bottle_suite import Resource
+from bottler import Resource
 
 
 class Items(Resource):
@@ -32,7 +32,7 @@ class Items(Resource):
 '''
 
 ADMIN_RESOURCE = '''
-from bottle_suite import Resource
+from bottler import Resource
 
 
 class Admin(Resource):
@@ -79,7 +79,7 @@ class TestMounts(unittest.TestCase):
 
     def _package(self, name, rows, extra_cfg="", init=PACKAGE_INIT, admin=False):
         """A package <name> with resources/items.py, plus its config folder
-        <tmp>/cfg/<name> holding bottle_suite.toml and a sqlite DB whose
+        <tmp>/cfg/<name> holding bottler.toml and a sqlite DB whose
         items table contains `rows`."""
         self.packages.append(name)
         res_dir = os.path.join(self.tmp, name, "resources")
@@ -101,16 +101,16 @@ class TestMounts(unittest.TestCase):
         con.executemany("INSERT INTO items (name) VALUES (?)", [(r,) for r in rows])
         con.commit()
         con.close()
-        with open(os.path.join(cfg_dir, "bottle_suite.toml"), "w") as f:
+        with open(os.path.join(cfg_dir, "bottler.toml"), "w") as f:
             f.write(f'sqlite = "{db_path}"\n' + textwrap.dedent(extra_cfg))
         return cfg_dir
 
     def _host(self, mounts_toml, extra=""):
         os.makedirs(os.path.join(self.tmp, "cfg"), exist_ok=True)
-        cfg = os.path.join(self.tmp, "cfg", "bottle_suite.toml")
+        cfg = os.path.join(self.tmp, "cfg", "bottler.toml")
         with open(cfg, "w") as f:
             f.write(f'jwt = "{JWT_KEY}"\n{extra}\n' + textwrap.dedent(mounts_toml))
-        bs = BottleSuite(cfg_file=cfg, gen_res=False, gen_auth=False, gen_hooks=False)
+        bs = Bottler(cfg_file=cfg, gen_res=False, gen_auth=False, gen_hooks=False)
         return bs, webtest.TestApp(bs)
 
     def test_each_mount_uses_its_own_database(self):
@@ -228,7 +228,7 @@ class TestMounts(unittest.TestCase):
         cwd = os.getcwd()
         os.chdir(os.path.join(self.tmp, "cfg"))
         self.addCleanup(os.chdir, cwd)
-        bs = BottleSuite(
+        bs = Bottler(
             cfg_file=None, jwt=False, gen_res=False, gen_auth=False, gen_hooks=False,
             mounts={"pkg_n": "pkg_n"},
         )
@@ -239,7 +239,7 @@ class TestMounts(unittest.TestCase):
         # A package app on its own (e.g. a connector repo's dev server builds
         # it directly): its own toml applies, nothing is inherited.
         cfg_dir = self._package("pkg_o", ["o1"], extra_cfg=f'jwt = "{JWT_KEY}"\n')
-        bs = BottleSuite(package="pkg_o", base_dir=cfg_dir, gen_hooks=False)
+        bs = Bottler(package="pkg_o", base_dir=cfg_dir, gen_hooks=False)
         app = webtest.TestApp(bs)
         self.assertEqual(app.get("/items").json, {"items": ["o1"]})
         # Package mode never looks for a cwd auth.py, so /token keeps the

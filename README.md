@@ -1,10 +1,10 @@
-# Bottle Suite
+# Bottler
 Bottle.py suite with CORS, SQL, REST, and JWT
 
 ## Installation
 
 ```bash
-python3 -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ bottle-suite --upgrade
+python3 -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ bottler --upgrade
 ```
 
 ## Usage
@@ -12,19 +12,19 @@ python3 -m pip install --index-url https://test.pypi.org/simple/ --extra-index-u
 
 #### Create Project
 ```bash
-$ bottle-suite-create
-Enter project name. <bottle-suite-project>:
+$ bottler-create
+Enter project name. <bottler-project>:
 Create a SQLite database? [y/N]:
 Attach an SQL database? [y/N]:
-Created project bottle-suite-project
-    cd bottle-suite-project
-    bottle-suite -d -r
+Created project bottler-project
+    cd bottler-project
+    bottler -d -r
 ```
 
 #### Run
 ```bash
-$ cd bottle-suite-project
-$ bottle-suite -d -r
+$ cd bottler-project
+$ bottler -d -r
 View dashboard @ http://localhost:8000/dashboard
 Bottle v0.13-dev server starting up (using WSGIRefServer(dashboard=True))...
 Listening on http://localhost:8000/
@@ -33,14 +33,14 @@ Hit Ctrl-C to quit.
 
 #### Options
 ```
-usage: bottle-suite [-h] [--port PORT] [--host HOST] [--jwt JWT_KEY] [--sqlite [PATH]] [--dbhost DBHOST] [--dbname DBNAME] [--dbuser DBUSER] [--dbpass DBPASS] [--cors CORS] [-r] [-d]
+usage: bottler [-h] [--port PORT] [--host HOST] [--jwt JWT_KEY] [--sqlite [PATH]] [--dbhost DBHOST] [--dbname DBNAME] [--dbuser DBUSER] [--dbpass DBPASS] [--cors CORS] [-r] [-d]
 
 optional arguments:
   -h, --help       show this help message and exit
   --port PORT      Port to listen on
   --host HOST      Host to listen on
   --jwt JWT_KEY    JWT key
-  --sqlite [PATH]  Path to SQLite database (default: bottle-suite/src/bottle_suite/cli/tmp.db)
+  --sqlite [PATH]  Path to SQLite database (default: bottler/cli/tmp.db)
   --dbhost DBHOST  SQL database host
   --dbname DBNAME  SQL database name
   --dbuser DBUSER  SQL database username
@@ -53,15 +53,15 @@ optional arguments:
 ### Import
 app.py
 ```python
-from bottle_suite import BottleSuite
+from bottler import Bottler
 
-app = BottleSuite()
+app = Bottler()
 app.run(reloader=True)
 ```
 
 ## Resources
 ### Resource Folder
-Bottle Suite will attempt to automatically find Resources objects in a resource folder in the working directory and create endpoints for them. By default it will look for a folder named "resources". All ".py" files in the folder will be scanned for Resource objects.
+Bottler will attempt to automatically find Resources objects in a resource folder in the working directory and create endpoints for them. By default it will look for a folder named "resources". All ".py" files in the folder will be scanned for Resource objects.
 
 #### Example Project Structure
 ```
@@ -78,7 +78,7 @@ See [Bottle REST Tutorial](https://github.com/thepure12/bottle-rest/blob/main/do
 
 #### resource_a.py
 ```python
-from bottle_suite import Resource
+from bottler import Resource
 
 class ResourceA(Resource):
 
@@ -102,21 +102,21 @@ class ResourceA(Resource):
 ```
 
 ### Adding Endpoints for Resources
-Bottle Suite has a Bottle REST object. Resources can be added by accessing the Bottle REST object and calling ***addResource()***.
+Bottler has a Bottle REST object. Resources can be added by accessing the Bottle REST object and calling ***addResource()***.
 
 #### app.py
 ```python
 from resources.resource_a import ResourceA
-from bottle_suite import BottleSuite
+from bottler import Bottler
 
-app = BottleSuite()
+app = Bottler()
 app.rest.addResource(ResourceA, "/resource_a")
 app.run(reloader=True)
 ```
 
 ### Auto-Generated Database Resources
 When a SQLite or SQL database is configured (`sqlite=...` / `sql=...`, via
-the constructor or `bottle_suite.toml`), `BottleSuite` introspects every
+the constructor or `bottler.toml`), `Bottler` introspects every
 table on startup and auto-generates a full CRUD `Resource` for each table
 that doesn't already have a route (`gen_db=True` by default - pass
 `gen_db=False` to disable). Only tables with a detected primary key are
@@ -132,24 +132,24 @@ references N levels deep - e.g. `GET /widgets/1?levels=2` replaces a
 `category_id` column with a nested `category` object.
 
 Per-table role gating and custom paths are configured under
-`[resources.<table>]` in `bottle_suite.toml`. See `example/` for a full
-working demo (`example/bottle_suite.toml`, `example/README.md`).
+`[resources.<table>]` in `bottler.toml`. See `example/` for a full
+working demo (`example/bottler.toml`, `example/README.md`).
 
 ### API Prefix
-Set `api_prefix` (constructor kwarg or top-level `bottle_suite.toml` key,
+Set `api_prefix` (constructor kwarg or top-level `bottler.toml` key,
 e.g. `api_prefix = "/api"`) to prepend a fixed prefix to every route
-BottleSuite registers as part of your project's own API — hand-authored
+Bottler registers as part of your project's own API — hand-authored
 resources, auto-generated database resources, and the JWT `/token`/
 `/users/current` endpoints. This is useful when something else (a
 static-site resource, a frontend build) needs to own the unprefixed
-paths. Bottle Suite's own dashboard and meta/admin routes (`/dashboard`,
+paths. Bottler's own dashboard and meta/admin routes (`/dashboard`,
 `/openapi.json`, `/_resources`, etc.) are never affected by `api_prefix`.
 
 An individual `Resource` subclass can opt out of the global prefix (or use
 a different one) by setting its own `api_prefix` class attribute:
 
 ```python
-from bottle_suite import Resource
+from bottler import Resource
 
 class ResourceA(Resource):
     api_prefix = ""  # always unprefixed, even if the app sets api_prefix
@@ -166,7 +166,7 @@ module happens to load in.
 ### Default Roles
 Hand-authored and auto-generated database resources are open unless they
 set `roles`. Set `default_roles` (constructor kwarg or top-level
-`bottle_suite.toml` key) to protect all of them at once:
+`bottler.toml` key) to protect all of them at once:
 
 ```toml
 default_roles = true                  # any valid token
@@ -192,7 +192,7 @@ unaffected.
 ### Mounting Packages
 One app can serve several installed packages, each under its own URL prefix
 and each with its own database. List them under `mounts` in
-`bottle_suite.toml`:
+`bottler.toml`:
 
 ```toml
 jwt = "..."
@@ -206,9 +206,9 @@ package = "bri_connector"      # importable package with a resources/ subpackage
 base_dir = "connectors/bri"    # its config folder (default: the mount name)
 ```
 
-Each mount is a child `BottleSuite` built from `<package>.resources` (not
+Each mount is a child `Bottler` built from `<package>.resources` (not
 `./resources`), served at `<api_prefix>/<name>/`. Its own
-`<base_dir>/bottle_suite.toml` sets its `sql`/`sqlite`, `resources.*` paths
+`<base_dir>/bottler.toml` sets its `sql`/`sqlite`, `resources.*` paths
 and roles, and `default_roles`; DB auto-CRUD works per mount. The child always
 takes `jwt`, `cors`, `rest`, `dashboard`, `openapi` and `api_prefix` from the
 parent (its own values for those are ignored), so one token works everywhere
@@ -220,15 +220,15 @@ The package's `__init__.py` may define `configure(app)`. It runs last, like
 get an `auth.py` or `hooks.py` from the working directory.
 
 A package can also run on its own (e.g. in its own repo for development):
-`BottleSuite(package="bri_connector", base_dir="config")`.
+`Bottler(package="bri_connector", base_dir="config")`.
 
 ### Custom Setup Hooks
 If a project defines a top-level `hooks.py` with a callable `configure(app)`,
-`BottleSuite` calls it automatically at the very end of `__init__` — after
+`Bottler` calls it automatically at the very end of `__init__` — after
 every resource, DB table, and built-in route (including `/openapi.json`) is
-already registered. This is the place to add anything `BottleSuite` doesn't
+already registered. This is the place to add anything `Bottler` doesn't
 already cover: extra routes, additional Bottle plugins, middleware, or
-overriding a route `BottleSuite` itself just set up.
+overriding a route `Bottler` itself just set up.
 
 #### hooks.py
 ```python
@@ -239,7 +239,7 @@ def configure(app):
 ```
 
 Disable auto-discovery with `gen_hooks=False` (constructor-only, not
-`bottle_suite.toml`-configurable). This works the same way whether the app
-is started via the `bottle-suite` CLI, a hand-rolled `app.py`, or a WSGI
+`bottler.toml`-configurable). This works the same way whether the app
+is started via the `bottler` CLI, a hand-rolled `app.py`, or a WSGI
 deploy — `hooks.py` just needs to sit at the process's working directory
-when `BottleSuite()` is constructed.
+when `Bottler()` is constructed.

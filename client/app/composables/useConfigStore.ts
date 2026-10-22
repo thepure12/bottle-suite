@@ -18,7 +18,7 @@ export interface PluginSection {
   extra: KeyValueRow[]
 }
 
-// The backend (bottle_suite.py setupJwt/setupSql/setupSqlite) accepts each
+// The backend (core.py setupJwt/setupSql/setupSqlite) accepts each
 // of these sections as bool | string-shorthand | dict. This adapter
 // normalizes any of those shapes into a flat {enabled, known, extra} form
 // the UI can render, and serializes back preserving the shorthand whenever
@@ -78,7 +78,7 @@ export function sectionToToml(section: PluginSection, primaryKey: string): unkno
   return table
 }
 
-// Replaces store/index.js (Vuex). GET/PUT /bottle_suite_cfg round-trips the
+// Replaces store/index.js (Vuex). GET/PUT /bottler_cfg round-trips the
 // *entire* config as a raw TOML string - there is no partial-update API, so
 // the whole parsed object is kept here and re-serialized on save.
 export function useConfigStore() {
@@ -89,7 +89,7 @@ export function useConfigStore() {
     loading.value = true
     try {
       const api = useApi()
-      const raw = await api<string>('/bottle_suite_cfg')
+      const raw = await api<string>('/bottler_cfg')
       parsed.value = parse(raw)
     } finally {
       loading.value = false
@@ -99,7 +99,7 @@ export function useConfigStore() {
   async function saveConfig() {
     const api = useApi()
     const tomlString = stringify(parsed.value)
-    await api('/bottle_suite_cfg', { method: 'PUT', body: { config: tomlString } })
+    await api('/bottler_cfg', { method: 'PUT', body: { config: tomlString } })
   }
 
   return { parsed, loading, fetchConfig, saveConfig }

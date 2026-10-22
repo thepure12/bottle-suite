@@ -1,4 +1,4 @@
-// Mirrors src/bottle_suite/resource_scaffold.py's NAME_RE exactly. UX-only:
+// Mirrors src/bottler/resource_scaffold.py's NAME_RE exactly. UX-only:
 // the backend re-validates (after .strip().lower()) and remains the source
 // of truth.
 export const RESOURCE_NAME_RE = /^[a-z_][a-z0-9_]*$/

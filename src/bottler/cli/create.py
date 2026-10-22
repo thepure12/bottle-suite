@@ -6,7 +6,7 @@ import shutil
 import pathlib
 import sqlite3
 
-from bottle_suite import resource_scaffold, auth_scaffold
+from bottler import resource_scaffold, auth_scaffold
 
 
 class Colors:
@@ -72,13 +72,13 @@ def getProjectDir(args):
     if not dirname:
         try:
             dirname = input(
-                f"Enter project name. {colored('<bottle-suite-project>', Colors.DARK_GRAY)}: "
+                f"Enter project name. {colored('<bottler-project>', Colors.DARK_GRAY)}: "
             )
         except KeyboardInterrupt:
             print("")
             exit()
     if not dirname:
-        dirname = "bottle-suite-project"
+        dirname = "bottler-project"
     return dirname
 
 
@@ -86,7 +86,7 @@ def createProjectDir(dirname):
     try:
         os.mkdir(dirname)
         os.mkdir(f"{dirname}/resources")
-        with open(f"{dirname}/bottle_suite.toml", "w+") as f:
+        with open(f"{dirname}/bottler.toml", "w+") as f:
             toml.dump(cfg, f)
         path = f"{pathlib.Path(__file__).parent.resolve()}"
         shutil.copyfile(f"{path}/hello_world.py", f"{dirname}/resources/hello_world.py")
@@ -116,7 +116,7 @@ def createSqliteDB(dirname: str):
         conn = sqlite3.connect(f"{dirname}/{db_name}.db")
         conn.close()
         cfg["sqlite"] = db_name + ".db"
-        with open(f"{dirname}/bottle_suite.toml", "w+") as f:
+        with open(f"{dirname}/bottler.toml", "w+") as f:
             toml.dump(cfg, f)
         return True
     else:
@@ -141,7 +141,7 @@ def attachSqlDB(dirname):
             "password": input(f"Enter password. {colored('<password>', Colors.DARK_GRAY)}")
             or "password",
         }
-        with open(f"{dirname}/bottle_suite.toml", "w+") as f:
+        with open(f"{dirname}/bottler.toml", "w+") as f:
             toml.dump(cfg, f)
 
 
@@ -153,7 +153,7 @@ def setupDashboardAuth(dirname):
         ).lower()
     )
     if setup:
-        from bottle_suite.dashboard.resources.token import hashPassword
+        from bottler.dashboard.resources.token import hashPassword
 
         username = (
             input(f"Enter admin username. {colored('<admin>', Colors.DARK_GRAY)}: ")
@@ -167,7 +167,7 @@ def setupDashboardAuth(dirname):
             )
             return
         cfg["dashboard"] = {"username": username, "password_hash": hashPassword(password)}
-        with open(f"{dirname}/bottle_suite.toml", "w+") as f:
+        with open(f"{dirname}/bottler.toml", "w+") as f:
             toml.dump(cfg, f)
 
 
@@ -181,7 +181,7 @@ def main():
         attachSqlDB(dirname)
     setupDashboardAuth(dirname)
     print(f"Created project {dirname}")
-    cprint(f"\n\tcd {dirname}\n\tbottle-suite -d -r\n\t", Colors.DARK_GRAY)
+    cprint(f"\n\tcd {dirname}\n\tbottler -d -r\n\t", Colors.DARK_GRAY)
 
 
 def getResourceName(args):
@@ -210,7 +210,7 @@ def createResourceFile(name):
 
 
 def updateResourceConfig(name):
-    cfg_path = os.path.join(os.getcwd(), "bottle_suite.toml")
+    cfg_path = os.path.join(os.getcwd(), "bottler.toml")
     if os.path.exists(cfg_path):
         with open(cfg_path) as f:
             project_cfg = toml.load(f)
