@@ -1,0 +1,14 @@
+sqlite = "inventory/data.db"
+
+# Not a Bottler setting. inventory_api's configure(app) reads it.
+low_stock_threshold = 5
+
+[resources.low_stock]
+paths = [ "/products/low_stock",]
+
+# Reads are open, writes need any valid token.
+[resources.products.roles]
+post = true
+put = true
+patch = true
+delete = true

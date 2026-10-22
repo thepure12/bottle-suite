@@ -1,0 +1,13 @@
+# Demo-only signing key. Generate your own with:
+# python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+jwt = "mounts-demo-only-signing-key-do-not-reuse"
+api_prefix = "/api"
+
+[mounts]
+# Short form: package name only. Config folder = the mount name (billing/).
+billing = "billing_api"
+
+# Long form: name the config folder.
+[mounts.inventory]
+package = "inventory_api"
+base_dir = "inventory"

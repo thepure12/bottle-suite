@@ -9,7 +9,7 @@ jwt = "example-only-demo-key-do-not-reuse-3f9c2a7b"
 enabled = true
 # No username/password_hash committed on purpose - visit /dashboard (or
 # POST /dashboard/setup) on first run to choose your own admin credentials.
-# See example/README.md.
+# See examples/task_tracker/README.md.
 
 [resources.project_tasks]
 paths = [ "/projects/<project_id>/tasks",]

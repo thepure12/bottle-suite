@@ -1,0 +1,20 @@
+# Demo-only signing key. Generate your own with:
+# python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+jwt = "auth-hooks-demo-key-do-not-reuse"
+
+# Every API route lives under /api, including /api/token.
+api_prefix = "/api"
+
+# Every resource method needs a valid token unless it says otherwise.
+default_roles = true
+
+# Only this front-end origin gets CORS headers.
+[cors]
+origins = [ "http://localhost:3000",]
+
+[resources.notes]
+paths = [ "/notes", "/notes/<note_id>",]
+
+# Reading notes is public: an explicit false opts GET out of default_roles.
+[resources.notes.roles]
+get = false

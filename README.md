@@ -14,6 +14,15 @@ from `bottler.plugins` and installed on a plain `Bottle` app.
 python3 -m pip install bottler
 ```
 
+## Examples
+Complete example projects live in [`examples/`](examples):
+
+- `hello_world` - hand-written resources, no database
+- `task_tracker` - sqlite auto-CRUD, roles, custom joins, the dashboard
+- `auth_hooks` - `auth.py`, `hooks.py`, `api_prefix`, `default_roles`, CORS
+- `mounts` - several packages and databases in one app
+- `plain_bottle` - the plugins on a plain `bottle.Bottle`
+
 ## Usage
 ### CLI
 
@@ -176,8 +185,8 @@ references N levels deep - e.g. `GET /widgets/1?levels=2` replaces a
 `category_id` column with a nested `category` object.
 
 Per-table role gating and custom paths are configured under
-`[resources.<table>]` in `bottler.toml`. See `example/` for a full
-working demo (`example/bottler.toml`, `example/README.md`).
+`[resources.<table>]` in `bottler.toml`. See `examples/task_tracker/` for a
+full working demo.
 
 ### API Prefix
 Set `api_prefix` (constructor kwarg or top-level `bottler.toml` key,
@@ -243,11 +252,11 @@ jwt = "..."
 api_prefix = "api"
 
 [mounts]
-trax = "trax_connector"        # short form: config folder = "trax"
+billing = "billing_api"        # short form: config folder = "billing"
 
-[mounts.bri]
-package = "bri_connector"      # importable package with a resources/ subpackage
-base_dir = "connectors/bri"    # its config folder (default: the mount name)
+[mounts.inventory]
+package = "inventory_api"      # importable package with a resources/ subpackage
+base_dir = "services/inventory"  # its config folder (default: the mount name)
 ```
 
 Each mount is a child `Bottler` built from `<package>.resources` (not
@@ -264,7 +273,7 @@ The package's `__init__.py` may define `configure(app)`. It runs last, like
 get an `auth.py` or `hooks.py` from the working directory.
 
 A package can also run on its own (e.g. in its own repo for development):
-`Bottler(package="bri_connector", base_dir="config")`.
+`Bottler(package="inventory_api", base_dir="config")`.
 
 ### Custom Setup Hooks
 If a project defines a top-level `hooks.py` with a callable `configure(app)`,

@@ -58,9 +58,9 @@ make publish         # package, then upload to real PyPI (irreversible per versi
 make upload          # upload existing dist/ to real PyPI
 ```
 
-Run the example app:
+Run an example app (`examples/README.md` lists them: `hello_world`, `task_tracker`, `auth_hooks`, `mounts`, `plain_bottle`). `auth_hooks` has no `app.py` and runs via `bottler --dir examples/auth_hooks`; `mounts` and `plain_bottle` create their sqlite DBs on first run (gitignored):
 ```bash
-cd example && python3 app.py
+cd examples/task_tracker && python3 app.py
 ```
 
 Run the CLI locally without installing the console-script entry points:
@@ -87,7 +87,7 @@ npm run generate   # static build -> writes directly into src/bottler/dashboard/
 1. `setupCors` — installs `CorsPlugin`; `cors` accepts a bare `True` for the original unrestricted `Access-Control-Allow-Origin: '*'` behavior, or `{"origins": [...]}` to echo back only an allowlisted requesting `Origin`
 2. `setupSql` / `setupSqlite` — mutually exclusive (raises if both passed); installs `sqlPlugin`/`sqlitePlugin`, available to resources as an injected `db` cursor
 3. `setupJwt` — installs `JWTPlugin`; auto-registers `GET/POST/OPTIONS /token` and `/users/current`. `jwt` defaults to `True` (not a fixed key): with no explicit `str`/`dict` key, a random `secrets.token_urlsafe(32)` secret is generated per process (printed as a warning, since it invalidates outstanding tokens on restart) rather than falling back to a hardcoded/guessable key.
-4. `setupAuth` (if `gen_auth`, default `True`, and JWT is enabled) — looks for a project-root `auth.py` defining a callable `authenticate` and, if found, wires it up as the `/token` auth function via `setTokenAuthFunction` (same mechanism as calling it by hand, e.g. `example/app.py`'s `authenticate`); a no-op if `auth.py` is absent, and a printed warning (falling back to the default always-succeeds `authFunc`) if it exists but has no callable `authenticate` — never a hard failure
+4. `setupAuth` (if `gen_auth`, default `True`, and JWT is enabled) — looks for a project-root `auth.py` defining a callable `authenticate` and, if found, wires it up as the `/token` auth function via `setTokenAuthFunction` (same mechanism as calling it by hand, e.g. `examples/task_tracker/app.py`'s `authenticate`); a no-op if `auth.py` is absent, and a printed warning (falling back to the default always-succeeds `authFunc`) if it exists but has no callable `authenticate` — never a hard failure
 5. `setupDashboard` — serves the built Nuxt SPA from `dashboard/dist` at `/dashboard`, and overrides the JWT token endpoint with `DashboardToken.authenticate` if no custom auth func was set
 6. `setupRest` — installs the vendored `API` plugin (`plugins/rest.py`), auto-imports any `Resource` subclasses found in `./resources/*.py` (via `importResourcesFromFile`, using `importlib`), and always registers five built-in meta-resources: `AllResources` (`/_resources`), `DataTypes` (`/_datatypes`), `Config` (`/bottler_cfg`), `PythonResources` (`/_python_resources`), `ResourceRoles` (`/_roles`). Each of these five is passed through `_protectBuiltinResource`/`setRoles` and defaults to `roles = True` (any authenticated user) on every method except `OPTIONS` — these are schema/config/role-mutation endpoints, so unlike hand-authored or DB-generated resources (which are unprotected unless the project configures `roles` itself or sets `default_roles`), they're never silently wide open. `_protectBuiltinResource` calls `setRoles(..., use_default=False)`, so `default_roles` never applies to them. `resources.<name>.roles` in `bottler.toml` (keyed by `_resources`/`_datatypes`/`bottler_cfg`/`_python_resources`/`_roles`) still layers a more specific restriction on top via the normal `setRoles` mechanism. `dashboard_token`'s own `/dashboard/setup` bootstrap route is deliberately excluded (self-guarded via `isConfigured()` instead).
 7. `createResForDB` (if `gen_db` and a DB is configured) — introspects every table in the connected database and auto-generates a CRUD `Resource` for each one that doesn't already have a route

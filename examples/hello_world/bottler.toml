@@ -1,0 +1,5 @@
+# No database and no JWT: the smallest useful Bottler app.
+jwt = false
+
+[resources.greeting]
+paths = [ "/greeting", "/greeting/<name>",]

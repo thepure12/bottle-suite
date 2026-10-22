@@ -1,4 +1,4 @@
-# Bottler example
+# Task tracker
 
 A small task-tracker app demonstrating what `Bottler` gives you for free
 (CORS, sqlite-backed auto-CRUD, JWT auth with per-route role gating, the
@@ -25,7 +25,7 @@ route) - see the FK-following examples under "Try it" below.
 ## Run it
 
 ```bash
-cd example
+cd examples/task_tracker
 python3 app.py
 ```
 

@@ -1,0 +1,8 @@
+# Relative to the process working directory, not to this file.
+sqlite = "billing/data.db"
+
+# Every billing route needs a token with the "finance" role.
+default_roles = [ "finance",]
+
+[resources.invoice_totals]
+paths = [ "/invoices/totals",]
