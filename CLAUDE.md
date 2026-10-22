@@ -27,7 +27,7 @@ The package was renamed from `bottle-suite`/`bottle_suite` to `bottler` as a cle
 An existing project migrates by renaming its `bottle_suite.toml` to `bottler.toml` (and any `[resources.bottle_suite_cfg]` section to `[resources.bottler_cfg]`), switching imports to `from bottler import Bottler`, renaming `BOTTLE_SUITE_CFG` and the run command, and reinstalling. Dashboard users must log in again once, because the cookie name changed. After any package move, reinstall every editable install (`pip install --no-deps -e ~/workspace/bottle-suite`) so its console scripts point at the new module.
 
 Still to do:
-- **PyPI**: a `0.0.1` placeholder that reserves `bottler` is built in `~/workspace/bottler-placeholder/` (`dist/`); the name is claimed only once uploaded to TestPyPI and to real PyPI (from that folder: `python3 -m twine upload --config-file ~/workspace/bottle-suite/.pypirc --repository testpypi dist/*`, then the same with `--repository pypi`). The name was free on both as of 2026-10-22.
+- **PyPI**: `bottler` is claimed on real PyPI by a `0.0.1` placeholder uploaded 2026-10-22 (built in `~/workspace/bottler-placeholder/`). The first real release must be a higher version (`pyproject.toml` is at `0.0.18`, so `make publish` works as is). TestPyPI is not claimed and is skipped for now.
 - **Downstream repos**: each `server/requirements.txt`, `bottle_suite.toml` and `*.example.toml`, `from bottle_suite import`, the `bottle-suite` run command in docs and CLAUDE.md, then reinstall each venv. Files matching `bottle.?suite` per repo as of 2026-10-22: `disciplemakers/connector-dashboard` 17, `bri-connector` 28, `expensify-connector` 32, `kardia/trax_connector` 31, `internal-transfers` 1.
 - The repo directory itself is still `~/workspace/bottle-suite`.
 
