@@ -29,6 +29,10 @@ dependencies = [
   "importlib_metadata; python_version < '3.8'",
 ]
 
+[project.urls]
+Homepage = "https://github.com/thepure12/bottle-suite"
+Repository = "https://github.com/thepure12/bottle-suite"
+
 [project.scripts]
 bottler = "bottler.cli.app:main"
 bottler-create = "bottler.cli.create:main"
