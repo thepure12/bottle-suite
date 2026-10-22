@@ -40,7 +40,7 @@ optional arguments:
   --port PORT      Port to listen on
   --host HOST      Host to listen on
   --jwt JWT_KEY    JWT key
-  --sqlite [PATH]  Path to SQLite database (default: bottle-suite/src/scripts/tmp.db)
+  --sqlite [PATH]  Path to SQLite database (default: bottle-suite/src/bottle_suite/cli/tmp.db)
   --dbhost DBHOST  SQL database host
   --dbname DBNAME  SQL database name
   --dbuser DBUSER  SQL database username

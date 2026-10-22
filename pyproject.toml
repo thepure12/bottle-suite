@@ -30,9 +30,9 @@ dependencies = [
 ]
 
 [project.scripts]
-bottle-suite = "scripts.app:main"
-bottle-suite-create = "scripts.create:main"
-bottle-suite-resource = "scripts.create:resource"
+bottle-suite = "bottle_suite.cli.app:main"
+bottle-suite-create = "bottle_suite.cli.create:main"
+bottle-suite-resource = "bottle_suite.cli.create:resource"
 
 [project.optional-dependencies]
 test = [

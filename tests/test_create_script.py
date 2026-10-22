@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import toml
 
-from scripts import create
+from bottle_suite.cli import create
 
 
 class TestGetResourceName(unittest.TestCase):

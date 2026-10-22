@@ -12,6 +12,23 @@ The package vendors these small single-module `bottle.py` plugins directly under
 - `plugins/sql.py` — provides `sqlitePlugin`/`sqlPlugin` (`self.sqlite`/`self.sql`)
 - `plugins/cors.py` — provides `CorsPlugin` (`self.cors`)
 
+## Planned rename: `bottler`
+
+The package is to be renamed `bottler` (chosen as one name for everything it does: scaffold, serve, SQL, REST, JWT, mounts, dashboard). The name was free on PyPI and TestPyPI as of 2026-10-22. A `0.0.1` placeholder that reserves it is built in `~/workspace/bottler-placeholder/` (`dist/` holds the wheel and sdist); it is claimed only once uploaded with `twine upload`, to TestPyPI and to real PyPI.
+
+The CLI already moved out of the generic top-level `scripts` package into `bottle_suite.cli` as a first step; the console-script names (`bottle-suite`, `-create`, `-resource`) are unchanged. After a move like this, every editable install must be reinstalled (`pip install --no-deps -e ~/workspace/bottle-suite`) so its console scripts point at the new module.
+
+Every name to change for the full rename (`git grep -iE 'bottle.?suite'` finds them; as of 2026-10-22, 50 files here hold `bottle_suite`, 24 `BottleSuite`, 9 `Bottle Suite`, 7 `bottle-suite`):
+- **Distribution and commands** (`pyproject.toml`): `name = "bottler"`; `bottle-suite`, `-create`, `-resource` become `bottler`, `bottler-create`, `bottler-resource`; coverage `include` paths; `description`. Also the `README.md` install line and CLI examples, and the default project dir `bottle-suite-project` in `cli/create.py`.
+- **Import package**: `src/bottle_suite/` becomes `src/bottler/`, plus every `import bottle_suite`/`from bottle_suite` in `src/`, `tests/`, `example/`, the `cli/hello_world.py` template and the import line `resource_scaffold.TEMPLATE` writes into new resources. `MANIFEST.in` (`graft src/bottle_suite/dashboard/dist`), `.gitignore`, and the client build output path (`nitro.output.publicDir` in `client/nuxt.config.ts`).
+- **Class**: `BottleSuite` (in `bottle_suite.py`, which itself becomes e.g. `app.py`/`bottler.py`). Pick the new class name (e.g. `Bottler`) and decide whether to keep `BottleSuite` as a deprecated alias.
+- **Config file**: `bottle_suite.toml` (default `cfg_file`, `cli/create.py`, `wsgi.py`, client messages, `tests/bottle_suite.toml`); ideally fall back to the old name so existing projects keep working.
+- **Env var**: `BOTTLE_SUITE_CFG` (`wsgi.py`, `tests/test_wsgi.py`).
+- **HTTP and browser names**: the `/bottle_suite_cfg` route (`bottle_suite.py` `setupRest`, `openapi.py`, client `useConfigStore.ts`) and the `bottle_suite_token` cookie (client `useApi.ts`, `useAuth.ts`, `SwaggerUIViewer.vue`). Renaming the cookie logs out every dashboard user once.
+- **Display text**: "Bottle Suite" in `client/` (`BrandMark.vue`, `pages/index.vue`, `pages/config.vue`), the OpenAPI default title `"Bottle Suite API"` (`openapi.py`, `tests/test_openapi.py`), `example/README.md`, `README.md` and this file.
+- **Internal prefix**: `_bs_route_cfg` (`_resetRouteConfig`); optional, but `_bs_` stands for bottle-suite.
+- **Downstream repos**: each `server/requirements.txt`, `bottle_suite.toml` and `*.example.toml`, `from bottle_suite import`, the `bottle-suite` run command in docs and CLAUDE.md, then reinstall each venv. Files matching `bottle.?suite` per repo: `disciplemakers/connector-dashboard` 17, `bri-connector` 28, `expensify-connector` 32, `kardia/trax_connector` 31, `internal-transfers` 1.
+
 ## Commands
 
 Install for local dev (editable):
@@ -27,7 +44,7 @@ python3 -m unittest tests.test_bottle_suite -v
 python3 -m unittest tests.test_bottle_suite.TestBottleSuite.test_genResoursesForDB -v
 make test                                # = coverage run -m unittest discover -s tests -v && coverage report -m
 ```
-Tests require `webtest`, `toml`, `PyJWT`, `pymysql`; the sqlite path is exercised for real against `tests/resources.db`/`tests/bottle_suite.toml`, while MySQL-only branches (no live MySQL server assumed) are exercised by mocking `pymysql.connect` via `tests/mysql_mock.py`. `[tool.coverage]` in `pyproject.toml` scopes measurement to the core package (`bottle_suite.py`, `resource_factory.py`, `resources.py`, `plugins/*.py`, `dashboard/resources/token.py` — excludes `src/scripts/` and the Nuxt client) with `fail_under = 100`; the suite currently holds 100% branch coverage there. See "Testing" under Architecture for suite structure and fixture-isolation gotchas.
+Tests require `webtest`, `toml`, `PyJWT`, `pymysql`; the sqlite path is exercised for real against `tests/resources.db`/`tests/bottle_suite.toml`, while MySQL-only branches (no live MySQL server assumed) are exercised by mocking `pymysql.connect` via `tests/mysql_mock.py`. `[tool.coverage]` in `pyproject.toml` scopes measurement to the core package (`bottle_suite.py`, `resource_factory.py`, `resources.py`, `plugins/*.py`, `dashboard/resources/token.py` — excludes `src/bottle_suite/cli/` and the Nuxt client) with `fail_under = 100`; the suite currently holds 100% branch coverage there. See "Testing" under Architecture for suite structure and fixture-isolation gotchas.
 
 Build/publish to Test PyPI (`Makefile`):
 ```bash
@@ -43,12 +60,12 @@ cd example && python3 app.py
 
 Run the CLI locally without installing the console-script entry points:
 ```bash
-python3 -m src.scripts.app -d -r --sqlite
-python3 -m src.scripts.create
+PYTHONPATH=src python3 -m bottle_suite.cli.app -d -r --sqlite
+PYTHONPATH=src python3 -m bottle_suite.cli.create
 ```
 The `-d` flag serves the dashboard from `src/bottle_suite/dashboard/dist`, which does not exist until you run `make dashboard` (or `npm run generate` in `client/`) at least once — it is not committed to git (see below) and `setupDashboard` prints a warning at startup if it's missing.
 
-`python3 -m src.scripts.app ...` works directly (`app.py` has an `if __name__ == "__main__": main()` guard) in addition to the installed `bottle-suite` console-script entry point (from `pyproject.toml`).
+`PYTHONPATH=src python3 -m bottle_suite.cli.app ...` works directly (`app.py` has an `if __name__ == "__main__": main()` guard) in addition to the installed `bottle-suite` console-script entry point (from `pyproject.toml`).
 
 Dashboard client (Nuxt 3/4 + Nuxt UI v4, in `client/`): its build output (`npm run generate`) is generated directly into `src/bottle_suite/dashboard/dist` (see `nitro.output.publicDir` in `client/nuxt.config.ts`) and packaged via `MANIFEST.in`'s `graft src/bottle_suite/dashboard/dist`. That directory is intentionally gitignored/not committed — `make dashboard` (or `make test-publish`, which depends on it) builds it fresh instead. The Nuxt CLI needs Node >=20.12 (`node:util`'s `styleText`) and `nuxt typecheck` needs `vue-tsc` as a devDependency — both gaps surface as opaque errors if either is missing/too old.
 ```bash
@@ -106,7 +123,7 @@ After any test run, verify `tests/resources.db` is still the committed version (
 ### Live reload: `reload.py`
 A near-empty module (`# Used to force reload`) that `BottleSuite.reloadServer()` rewrites to touch its mtime — this is the mechanism that triggers bottle's `reloader=True` process restart after the dashboard changes config/schema at runtime.
 
-### CLI scripts (`src/scripts/`)
+### CLI scripts (`src/bottle_suite/cli/`)
 - `app.py` — the `bottle-suite` entry point; parses CLI flags (`--dir`, `--jwt`, `--sqlite`, `--dbhost/--dbname/--dbuser/--dbpass`, `--cors`, `-r`, `-d`), chdir's into `--dir` first (if given) so `bottle_suite.toml`/`resources/` resolve relative to it rather than the invoking shell's cwd, builds `BottleSuite(**kwargs)`, retries on `Exception` with a 5s backoff (but exits on `sqlite3.OperationalError`/`pymysql.err.OperationalError`), and cleans up the temp SQLite file on exit if `--sqlite` was used with no path.
 - `create.py` — the `bottle-suite-create` entry point; interactively scaffolds a new project directory (`resources/` subfolder + `bottle_suite.toml`, copying `hello_world.py` as a starter resource, and unconditionally writing a reject-all `auth.py` stub via `auth_scaffold.writeAuthFile` — see below), optionally creating a SQLite DB file or prompting for SQL connection details.
 - `bottle-suite-resource` — the entry point for `resource()` in `create.py`: prompts for a resource name, validates it against `resource_scaffold.NAME_RE` (lowercase snake_case), writes `resources/<name>.py` from the `resource_scaffold.render()` template, and appends a default `[resources.<name>]` section (with `paths = ["/<name>", "/<name>/<key>"]`) to the project's `bottle_suite.toml`.
