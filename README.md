@@ -4,9 +4,7 @@ auth, SQLite/MySQL access and CORS into one app, plus a CLI to scaffold and
 run projects and an optional admin dashboard.
 
 The REST, JWT, SQL and CORS plugins are built into the package
-(`bottler.plugins`). No separate `bottle-rest`, `bottle-jwt`, `bottle-sql` or
-`bottle-cors` install is needed. Runtime dependencies are only `bottle`,
-`PyJWT`, `pymysql` and `toml`. The plugin classes (`API`, `Resource`,
+(`bottler.plugins`). Runtime dependencies are only `bottle`, `PyJWT`, `pymysql` and `toml`. The plugin classes (`API`, `Resource`,
 `JWTPlugin`, `sqlitePlugin`, `sqlPlugin`, `CorsPlugin`) can also be imported
 from `bottler.plugins` and installed on a plain `Bottle` app.
 
