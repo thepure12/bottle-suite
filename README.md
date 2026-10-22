@@ -1,5 +1,14 @@
 # Bottler
-Bottle.py suite with CORS, SQL, REST, and JWT
+A [Bottle](https://bottlepy.org) subclass that bundles REST resources, JWT
+auth, SQLite/MySQL access and CORS into one app, plus a CLI to scaffold and
+run projects and an optional admin dashboard.
+
+The REST, JWT, SQL and CORS plugins are built into the package
+(`bottler.plugins`). No separate `bottle-rest`, `bottle-jwt`, `bottle-sql` or
+`bottle-cors` install is needed. Runtime dependencies are only `bottle`,
+`PyJWT`, `pymysql` and `toml`. The plugin classes (`API`, `Resource`,
+`JWTPlugin`, `sqlitePlugin`, `sqlPlugin`, `CorsPlugin`) can also be imported
+from `bottler.plugins` and installed on a plain `Bottle` app.
 
 ## Installation
 
@@ -33,14 +42,18 @@ Hit Ctrl-C to quit.
 
 #### Options
 ```
-usage: bottler [-h] [--port PORT] [--host HOST] [--jwt JWT_KEY] [--sqlite [PATH]] [--dbhost DBHOST] [--dbname DBNAME] [--dbuser DBUSER] [--dbpass DBPASS] [--cors CORS] [-r] [-d]
+usage: bottler [-h] [--port PORT] [--host HOST] [--dir PATH] [--jwt [JWT_KEY]]
+               [--sqlite [PATH]] [--dbhost DBHOST] [--dbname DBNAME]
+               [--dbuser DBUSER] [--dbpass DBPASS] [--cors CORS] [-r] [-d]
 
-optional arguments:
+options:
   -h, --help       show this help message and exit
   --port PORT      Port to listen on
   --host HOST      Host to listen on
-  --jwt JWT_KEY    JWT key
-  --sqlite [PATH]  Path to SQLite database (default: bottler/cli/tmp.db)
+  --dir PATH       Change to this directory before starting, so bottler.toml
+                   and resources/ are resolved relative to it
+  --jwt [JWT_KEY]  JWT key
+  --sqlite [PATH]  Path to SQLite database (default: <package>/cli/tmp.db)
   --dbhost DBHOST  SQL database host
   --dbname DBNAME  SQL database name
   --dbuser DBUSER  SQL database username
@@ -49,6 +62,9 @@ optional arguments:
   -r               Automatic reloading
   -d               Enable dashboard
 ```
+
+`--jwt` with no value generates a random key. `--sqlite` with no path uses a
+temporary database that is deleted on exit.
 
 ### Import
 app.py
@@ -74,7 +90,37 @@ Bottler will attempt to automatically find Resources objects in a resource folde
 ```
 
 ### Resource Objects
-See [Bottle REST Tutorial](https://github.com/thepure12/bottle-rest/blob/main/docs/tutorial.rst)
+A resource is a subclass of `bottler.Resource`. Each method it defines
+(`options`, `get`, `post`, `put`, `patch`, `delete`) becomes a route for that
+HTTP method on every path the resource is added at.
+
+Method arguments are filled from URL parameters and the JSON request body. If
+a required argument (one with no default) is missing from both, the request
+fails with `400 {"<name>": "This field is required"}`. Query-string values are
+available through `self.params`.
+
+When a SQLite or SQL database is configured, an argument named `db` receives a
+database cursor (SQLite uses `?` placeholders, MySQL uses `%s`):
+
+```python
+from bottler import Resource
+
+class ProjectTasks(Resource):
+    def get(self, db, project_id):
+        sql = "SELECT * FROM tasks WHERE project_id = ?"
+        return {"tasks": db.execute(sql, (project_id,)).fetchall()}
+```
+
+Per-method route options such as `roles` are set as class attributes named
+after the HTTP method:
+
+```python
+class Reports(Resource):
+    GET = {"roles": ["admin"]}
+
+    def get(self):
+        return {}
+```
 
 #### resource_a.py
 ```python
