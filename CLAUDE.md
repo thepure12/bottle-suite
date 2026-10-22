@@ -27,7 +27,7 @@ The package was renamed from `bottle-suite`/`bottle_suite` to `bottler` as a cle
 An existing project migrates by renaming its `bottle_suite.toml` to `bottler.toml` (and any `[resources.bottle_suite_cfg]` section to `[resources.bottler_cfg]`), switching imports to `from bottler import Bottler`, renaming `BOTTLE_SUITE_CFG` and the run command, and reinstalling. Dashboard users must log in again once, because the cookie name changed. After any package move, reinstall every editable install (`pip install --no-deps -e ~/workspace/bottle-suite`) so its console scripts point at the new module.
 
 Still to do:
-- **PyPI**: a `0.0.1` placeholder that reserves `bottler` is built in `~/workspace/bottler-placeholder/` (`dist/`); the name is claimed only once uploaded with `twine upload` to TestPyPI and to real PyPI. The name was free on both as of 2026-10-22.
+- **PyPI**: a `0.0.1` placeholder that reserves `bottler` is built in `~/workspace/bottler-placeholder/` (`dist/`); the name is claimed only once uploaded to TestPyPI and to real PyPI (from that folder: `python3 -m twine upload --config-file ~/workspace/bottle-suite/.pypirc --repository testpypi dist/*`, then the same with `--repository pypi`). The name was free on both as of 2026-10-22.
 - **Downstream repos**: each `server/requirements.txt`, `bottle_suite.toml` and `*.example.toml`, `from bottle_suite import`, the `bottle-suite` run command in docs and CLAUDE.md, then reinstall each venv. Files matching `bottle.?suite` per repo as of 2026-10-22: `disciplemakers/connector-dashboard` 17, `bri-connector` 28, `expensify-connector` 32, `kardia/trax_connector` 31, `internal-transfers` 1.
 - The repo directory itself is still `~/workspace/bottle-suite`.
 
@@ -48,11 +48,14 @@ make test                                # = coverage run -m unittest discover -
 ```
 Tests require `webtest`, `toml`, `PyJWT`, `pymysql`; the sqlite path is exercised for real against `tests/resources.db`/`tests/bottler.toml`, while MySQL-only branches (no live MySQL server assumed) are exercised by mocking `pymysql.connect` via `tests/mysql_mock.py`. `[tool.coverage]` in `pyproject.toml` scopes measurement to the core package (`core.py`, `resource_factory.py`, `resources.py`, `plugins/*.py`, `dashboard/resources/token.py` — excludes `src/bottler/cli/` and the Nuxt client) with `fail_under = 100`; the suite currently holds 100% branch coverage there. See "Testing" under Architecture for suite structure and fixture-isolation gotchas.
 
-Build/publish to Test PyPI (`Makefile`):
+Build/publish (`Makefile`). Every upload passes `--config-file .pypirc`: the project-root `.pypirc` holds the TestPyPI and PyPI API tokens, is gitignored and must never be committed. `twine` and `build` live in the repo `.venv` (the system Python refuses pip installs), so activate it first:
 ```bash
 make dashboard       # npm install + npm run generate (builds src/bottler/dashboard/dist)
-make test-publish    # depends on `dashboard`; rm dist/build, python3 -m build, upload to testpypi
+make package         # depends on `dashboard`; rm dist/build, python3 -m build
+make test-publish    # package, then upload to testpypi
 make test-upload     # upload existing dist/ to testpypi
+make publish         # package, then upload to real PyPI (irreversible per version)
+make upload          # upload existing dist/ to real PyPI
 ```
 
 Run the example app:
@@ -69,7 +72,7 @@ The `-d` flag serves the dashboard from `src/bottler/dashboard/dist`, which does
 
 `PYTHONPATH=src python3 -m bottler.cli.app ...` works directly (`app.py` has an `if __name__ == "__main__": main()` guard) in addition to the installed `bottler` console-script entry point (from `pyproject.toml`).
 
-Dashboard client (Nuxt 3/4 + Nuxt UI v4, in `client/`): its build output (`npm run generate`) is generated directly into `src/bottler/dashboard/dist` (see `nitro.output.publicDir` in `client/nuxt.config.ts`) and packaged via `MANIFEST.in`'s `graft src/bottler/dashboard/dist`. That directory is intentionally gitignored/not committed — `make dashboard` (or `make test-publish`, which depends on it) builds it fresh instead. The Nuxt CLI needs Node >=20.12 (`node:util`'s `styleText`) and `nuxt typecheck` needs `vue-tsc` as a devDependency — both gaps surface as opaque errors if either is missing/too old.
+Dashboard client (Nuxt 3/4 + Nuxt UI v4, in `client/`): its build output (`npm run generate`) is generated directly into `src/bottler/dashboard/dist` (see `nitro.output.publicDir` in `client/nuxt.config.ts`) and packaged via `MANIFEST.in`'s `graft src/bottler/dashboard/dist`. That directory is intentionally gitignored/not committed — `make dashboard` (or `make package`, which `make test-publish` and `make publish` depend on) builds it fresh instead. The Nuxt CLI needs Node >=20.12 (`node:util`'s `styleText`) and `nuxt typecheck` needs `vue-tsc` as a devDependency — both gaps surface as opaque errors if either is missing/too old.
 ```bash
 cd client && npm install
 npm run dev        # nuxt dev server

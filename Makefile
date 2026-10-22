@@ -1,3 +1,6 @@
+# Upload credentials live in ./.pypirc (gitignored, never commit it).
+TWINE_UPLOAD = python3 -m twine upload --config-file .pypirc
+
 dashboard:
 	cd client && npm install && npm run generate
 
@@ -5,11 +8,19 @@ test:
 	coverage run -m unittest discover -s tests -v
 	coverage report -m
 
-test-publish: dashboard
+package: dashboard
 	-rm -r dist
 	-rm -r build
 	python3 -m build
-	python3 -m twine upload --repository testpypi dist/*
+
+test-publish: package
+	$(TWINE_UPLOAD) --repository testpypi dist/*
 
 test-upload:
-	python3 -m twine upload --repository testpypi dist/*
+	$(TWINE_UPLOAD) --repository testpypi dist/*
+
+publish: package
+	$(TWINE_UPLOAD) --repository pypi dist/*
+
+upload:
+	$(TWINE_UPLOAD) --repository pypi dist/*
