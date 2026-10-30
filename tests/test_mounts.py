@@ -12,6 +12,7 @@ import jwt as pyjwt
 import webtest
 
 from bottler import Bottler
+from bottler.dashboard.resources.token import ADMIN_ROLE
 
 JWT_KEY = "mount-secret"
 
@@ -245,6 +246,20 @@ class TestMounts(unittest.TestCase):
         # Package mode never looks for a cwd auth.py, so /token keeps the
         # default auth function.
         self.assertEqual(app.post_json("/token", {}).status_code, 200)
+
+    def test_mounted_child_has_no_meta_routes(self):
+        # Even with the dashboard on in the host, a child's config, tables
+        # and roles are never exposed through the meta/admin routes.
+        self._package("pkg_p", ["p1"])
+        _, app = self._host('''
+            [mounts.p]
+            package = "pkg_p"
+            base_dir = "pkg_p"
+        ''', extra="dashboard = true")
+        headers = _auth(roles=[ADMIN_ROLE])
+        self.assertEqual(app.get("/_roles", headers=headers).status_code, 200)
+        for path in ("/p/bottler_cfg", "/p/_resources", "/p/_python_resources", "/p/_roles"):
+            self.assertEqual(app.get(path, headers=headers, expect_errors=True).status_code, 404)
 
 
 if __name__ == "__main__":

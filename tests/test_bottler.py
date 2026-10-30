@@ -82,9 +82,17 @@ class TestBottler(unittest.TestCase):
         self.assertEqual(bs.cfg, {})
 
     # REST
-    def test_initRest(self):
-        self.assertIn("AllResources", self.bottler.resource_names)
-        self.assertIn("DataTypes", self.bottler.resource_names)
+    def test_initRest_noDashboard_noMetaResources(self):
+        self.assertNotIn("AllResources", self.bottler.resource_names)
+        self.assertNotIn("DataTypes", self.bottler.resource_names)
+
+    def test_initRest_dashboard_addsMetaResources(self):
+        bs = Bottler(
+            cfg_file=NONEXISTENT_CFG, dashboard=True, jwt="k", sqlite=False,
+            gen_res=False, gen_db=False,
+        )
+        self.assertIn("AllResources", bs.resource_names)
+        self.assertIn("DataTypes", bs.resource_names)
 
     def test_initNoRest(self):
         self.bottler = Bottler(rest=False)

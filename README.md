@@ -237,10 +237,25 @@ resource:
 get = false
 ```
 
-`OPTIONS` never gets the default, so CORS preflight still works. The
-built-in meta routes (`/_resources`, `/_roles`, ...) keep their own
-`roles = true` and ignore `default_roles`. The JWT `/token` route is
-unaffected.
+`OPTIONS` never gets the default, so CORS preflight still works. The JWT
+`/token` route is unaffected.
+
+### Meta Routes
+The dashboard's meta/admin routes (`/_resources`, `/_datatypes`,
+`/bottler_cfg`, `/_python_resources`, `/_roles`) dump and rewrite the
+config, change roles and create or drop tables. They exist only when the
+dashboard is on, never in a mounted package, and always require the role
+`bottler:admin`, which only the dashboard login (`/dashboard/token`, a 12h
+token) grants. Your own `authenticate` must never return that role.
+
+`default_roles` doesn't apply to them. `[resources.<name>.roles]` can let
+your own roles in too, next to `bottler:admin`; a `true` or `false` there
+is ignored, so it can't open them up:
+
+```toml
+[resources.bottler_cfg.roles]
+get = ["admin"]
+```
 
 ### Mounting Packages
 One app can serve several installed packages, each under its own URL prefix

@@ -23,7 +23,7 @@ from .resources import (
     SQLITE_TYPES,
     MYSQL_TYPES,
 )
-from .dashboard.resources.token import DashboardToken
+from .dashboard.resources.token import DashboardToken, ADMIN_ROLE
 import pymysql
 import pymysql.cursors
 import sqlite3
@@ -293,6 +293,11 @@ class Bottler(Bottle):
                 self.importPackageResources()
             elif gen and os.path.exists(os.getcwd() + "/resources"):
                 self.importResourcesDir()
+            # The meta/admin resources exist only for the dashboard, so only
+            # an app with the dashboard on gets them. A mounted child never
+            # does (setupMounts passes dashboard=False).
+            if not getattr(self, "dashboard_token", None):
+                return
             for name, resource, paths in (
                 ("_resources", AllResources(self), ("/_resources", "/_resources/<resource>")),
                 ("_datatypes", DataTypes(self), ("/_datatypes",)),
@@ -306,36 +311,38 @@ class Bottler(Bottle):
             ):
                 self._protectBuiltinResource(resource, name)
                 self.rest.addResource(resource, *paths)
-            if getattr(self, "dashboard_token", None):
-                self.rest.addResource(self.dashboard_token, "/dashboard/setup")
+            self.rest.addResource(self.dashboard_token, "/dashboard/setup")
         else:
             self.rest = None
 
     def _protectBuiltinResource(self, resource, name):
         # These meta/admin resources (schema mutation, full config dump/
-        # replace, role editing) must never be reachable without a valid
-        # token by default -- unlike hand-authored or DB-generated
-        # resources, nothing else gates access to them. Unlike those,
-        # AllResources/DataTypes/Config/PythonResources/ResourceRoles are
-        # singleton classes imported once at module load rather than
-        # recreated per Bottler() instantiation, so their route config
-        # (stored as class attributes by Resource.setRouteConfig) is reset
-        # to a clean slate first -- otherwise a later instantiation's toml
-        # role config could be silently blocked by a bool leftover from an
-        # earlier instantiation in the same process (tests, the CLI retry
-        # loop). setRoles() is then free to apply any
-        # resources.<name>.roles override cleanly, and only methods it left
-        # untouched fall back to the "any authenticated user" default.
+        # replace, role editing) always require ADMIN_ROLE, which only the
+        # dashboard's own login grants. resources.<name>.roles can add
+        # roles (e.g. the app's own admins) but never remove ADMIN_ROLE:
+        # a `true`/`false` there is ignored, so neither the toml nor a
+        # PATCH to /_roles can open them up. Unlike hand-authored or
+        # DB-generated resources, AllResources/DataTypes/Config/
+        # PythonResources/ResourceRoles are singleton classes imported once
+        # at module load, so their route config (class attributes) is reset
+        # first -- otherwise roles from an earlier instantiation in the same
+        # process (tests, the CLI retry loop) would leak into this one.
         # OPTIONS is left alone so CORS preflight still passes through.
-        for meth in resource.Methods:
-            resource.setRouteConfig(meth, {})
-        self.setRoles(resource, name, use_default=False)
+        cfg_roles = self.cfg.get("resources", {}).get(name, {}).get("roles", {})
         for meth in resource.Methods:
             if meth == resource.Methods.OPTIONS:
+                resource.setRouteConfig(meth, {})
                 continue
-            route_cfg = resource.getRouteConfig(meth)
-            route_cfg.setdefault("roles", True)
-            resource.setRouteConfig(meth, route_cfg)
+            extra = cfg_roles.get(meth.value.lower(), [])
+            extra = self._normalizeRoles(extra) if isinstance(extra, str) else extra
+            if not isinstance(extra, list):
+                print(
+                    f"Ignoring roles {extra!r} on {meth.value} for {name}: it "
+                    f"always requires {ADMIN_ROLE!r}; list extra roles instead"
+                )
+                extra = []
+            roles = [ADMIN_ROLE] + [r for r in extra if r != ADMIN_ROLE]
+            resource.setRouteConfig(meth, {"roles": roles})
 
     def setupOpenApi(self, use_openapi: Union[bool, dict]):
         if isinstance(use_openapi, dict):

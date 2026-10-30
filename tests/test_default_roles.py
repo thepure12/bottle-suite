@@ -11,6 +11,7 @@ import db_fixtures
 from bottler import Bottler
 from bottler.plugins import rest as bottle_rest
 from bottler.resources import _buildRoles
+from bottler.dashboard.resources.token import ADMIN_ROLE
 
 JWT_KEY = "secret"
 
@@ -123,11 +124,42 @@ class TestDefaultRoles(unittest.TestCase):
         self.assertEqual(get_roles, ["admin"])
         self.assertIsNot(get_roles, post_roles)
 
-    def test_builtinMetaRoutes_keepTheirOwnDefault(self):
-        # A role list must not lock token holders without that role out of
-        # the meta routes -- they keep _protectBuiltinResource's roles=True.
-        _, app = self._app('default_roles = ["admin"]\n')
-        self.assertEqual(app.get("/_roles", headers=_auth(roles=["viewer"])).status_code, 200)
+    def test_builtinMetaRoutes_requireAdminRole(self):
+        # default_roles doesn't apply to the meta routes: only the
+        # dashboard's ADMIN_ROLE gets in, whatever the app's own roles.
+        _, app = self._app('default_roles = ["admin"]\n', dashboard=True)
+        for roles in (["viewer"], ["admin"]):
+            self.assertEqual(
+                app.get("/_roles", headers=_auth(roles=roles), expect_errors=True).status_code,
+                403,
+            )
+        self.assertEqual(app.get("/_roles", headers=_auth(roles=[ADMIN_ROLE])).status_code, 200)
+
+    def test_builtinMetaRoutes_tomlRolesAddToAdminRole(self):
+        _, app = self._app('[resources._roles.roles]\nget = ["admin"]\n', dashboard=True)
+        self.assertEqual(app.get("/_roles", headers=_auth(roles=["admin"])).status_code, 200)
+        self.assertEqual(app.get("/_roles", headers=_auth(roles=[ADMIN_ROLE])).status_code, 200)
+        self.assertEqual(
+            app.get("/_roles", headers=_auth(roles=["viewer"]), expect_errors=True).status_code,
+            403,
+        )
+
+    def test_builtinMetaRoutes_tomlBoolCantOpenThem(self):
+        for value in ("false", "true"):
+            _, app = self._app(f"[resources._roles.roles]\nget = {value}\n", dashboard=True)
+            self.assertEqual(app.get("/_roles", expect_errors=True).status_code, 400)
+            self.assertEqual(
+                app.get("/_roles", headers=_auth(roles=["viewer"]), expect_errors=True).status_code,
+                403,
+            )
+
+    def test_builtinMetaRoutes_absentWithoutDashboard(self):
+        _, app = self._app("default_roles = true\n")
+        for path in ("/_roles", "/_resources", "/_python_resources", "/_datatypes", "/bottler_cfg"):
+            self.assertEqual(
+                app.get(path, headers=_auth(roles=[ADMIN_ROLE]), expect_errors=True).status_code,
+                404,
+            )
 
     def test_dbResources_getDefault(self):
         tmp_db = db_fixtures.temp_sqlite_copy()

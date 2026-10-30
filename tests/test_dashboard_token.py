@@ -3,8 +3,9 @@ import unittest
 import os
 import tempfile
 import webtest
+from datetime import datetime, timedelta, timezone
 from bottler import Bottler
-from bottler.dashboard.resources.token import DashboardToken, hashPassword
+from bottler.dashboard.resources.token import DashboardToken, hashPassword, ADMIN_ROLE
 
 NONEXISTENT_CFG = "no_such_bottler_cfg.toml"
 
@@ -43,9 +44,18 @@ class TestDashboardTokenAuthenticate(unittest.TestCase):
             cfg={"dashboard": {"username": "admin", "password_hash": hashPassword("secret")}}
         )
         token = DashboardToken(app)
-        self.assertEqual(
-            token.authenticate(username="admin", password="secret"), {"user": "admin"}
+        claims = token.authenticate(username="admin", password="secret")
+        self.assertEqual(claims["user"], "admin")
+        self.assertEqual(claims["roles"], [ADMIN_ROLE])
+
+    def test_authenticate_tokenExpires(self):
+        app = FakeApp(
+            cfg={"dashboard": {"username": "admin", "password_hash": hashPassword("secret")}}
         )
+        claims = DashboardToken(app).authenticate(username="admin", password="secret")
+        lifetime = claims["exp"] - datetime.now(timezone.utc)
+        self.assertGreater(lifetime, timedelta(hours=11))
+        self.assertLessEqual(lifetime, timedelta(hours=12))
 
     def test_authenticate_dashboardDictMissingHash_returnsNone(self):
         # A dict is present (e.g. only `enabled` was ever set) but no
@@ -87,9 +97,7 @@ class TestDashboardTokenAuthenticate(unittest.TestCase):
         self.assertTrue(token.isConfigured())
         self.assertEqual(app.save_calls, 1)
         self.assertEqual(app.reload_calls, 1)
-        self.assertEqual(
-            token.authenticate(username="admin", password="secret"), {"user": "admin"}
-        )
+        self.assertEqual(token.authenticate(username="admin", password="secret")["user"], "admin")
 
     def test_post_preservesExistingDictKeys(self):
         app = FakeApp(cfg={"dashboard": {"enabled": False}})

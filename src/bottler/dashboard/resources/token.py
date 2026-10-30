@@ -1,8 +1,14 @@
 from ...plugins import Resource
 from bottle import response
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import secrets
+
+# The role every meta/admin route requires (see Bottler._protectBuiltinResource).
+# Only the dashboard login grants it; an app's own auth must never return it.
+ADMIN_ROLE = "bottler:admin"
+TOKEN_LIFETIME = timedelta(hours=12)
 
 
 def hashPassword(password: str) -> str:
@@ -36,7 +42,11 @@ class DashboardToken(Resource):
         salt, key = salt_key[:32], salt_key[32:]
         new_key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100000)
         if hmac.compare_digest(new_key, key):
-            return {"user": stored_username}
+            return {
+                "user": stored_username,
+                "roles": [ADMIN_ROLE],
+                "exp": datetime.now(timezone.utc) + TOKEN_LIFETIME,
+            }
         return None
 
     def options(self, *args, **kwargs):

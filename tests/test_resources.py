@@ -10,6 +10,7 @@ import webtest
 import jwt as pyjwt
 from datetime import datetime, timedelta
 from bottler import Bottler
+from bottler.dashboard.resources.token import ADMIN_ROLE
 from bottler.resources import (
     Config,
     DataTypes,
@@ -29,8 +30,16 @@ JWT_KEY = "secret"
 
 
 def _valid_token(**extra):
-    payload = {"exp": datetime.utcnow() + timedelta(days=1), **extra}
+    payload = {"exp": datetime.utcnow() + timedelta(days=1), "roles": [ADMIN_ROLE], **extra}
     return pyjwt.encode(payload, JWT_KEY, algorithm="HS256")
+
+
+def _admin_app(bs):
+    """A TestApp sending a dashboard admin token -- every meta/admin route
+    requires ADMIN_ROLE, and exists only with the dashboard on."""
+    app = webtest.TestApp(bs)
+    app.authorization = ("Bearer", _valid_token())
+    return app
 
 
 class CustomResource(bottle_rest.Resource):
@@ -53,11 +62,11 @@ class TestConfigResource(unittest.TestCase):
         self.cfg_dir, self.cfg_path = db_fixtures.temp_cfg_copy()
         self.bs = Bottler(
             cfg_file=self.cfg_path,
-            jwt=False,
+            jwt=JWT_KEY, dashboard=True,
             gen_res=False,
             gen_db=False,
         )
-        self.app = webtest.TestApp(self.bs)
+        self.app = _admin_app(self.bs)
         # jwt=False above is overridden by the copied toml's own [jwt]
         # section (see JWT_KEY comment) -- Config is now roles-protected
         # by default, so every request needs a valid bearer token.
@@ -91,10 +100,9 @@ class TestConfigResource(unittest.TestCase):
         resp = app.get("/bottler_cfg", expect_errors=True)
         self.assertEqual(resp.status_code, 400)
 
-    def test_get_tomlRoleOverride_appliedOnTopOfDefault(self):
-        # resources.<name>.roles in bottler.toml still layers on top of
-        # the built-in "any authenticated user" default -- a token without
-        # the configured role is rejected even though it's otherwise valid.
+    def test_get_tomlRoles_addToAdminRole(self):
+        # resources.<name>.roles in bottler.toml adds roles next to
+        # ADMIN_ROLE -- a valid token with neither is still rejected.
         cfg_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, cfg_dir)
         cfg_path = os.path.join(cfg_dir, "bottler.toml")
@@ -103,12 +111,15 @@ class TestConfigResource(unittest.TestCase):
                 '[jwt]\njwt_key = "secret"\n\n'
                 '[resources.bottler_cfg.roles]\nget = ["admin"]\n'
             )
-        bs = Bottler(cfg_file=cfg_path, gen_res=False, gen_db=False)
-        app = webtest.TestApp(bs)
-        app.authorization = ("Bearer", _valid_token())
+        bs = Bottler(cfg_file=cfg_path, gen_res=False, gen_db=False, dashboard=True)
+        app = _admin_app(bs)
+        app.authorization = ("Bearer", _valid_token(roles=["viewer"]))
         resp = app.get("/bottler_cfg", expect_errors=True)
         self.assertEqual(resp.status_code, 403)
         app.authorization = ("Bearer", _valid_token(roles=["admin"]))
+        resp = app.get("/bottler_cfg")
+        self.assertEqual(resp.status_code, 200)
+        app.authorization = ("Bearer", _valid_token())
         resp = app.get("/bottler_cfg")
         self.assertEqual(resp.status_code, 200)
 
@@ -126,12 +137,12 @@ class TestDataTypesResource(unittest.TestCase):
         try:
             bs = Bottler(
                 cfg_file=NONEXISTENT_CFG,
-                jwt=False,
+                jwt=JWT_KEY, dashboard=True,
                 sqlite=tmp_db,
                 gen_res=False,
                 gen_db=False,
             )
-            app = webtest.TestApp(bs)
+            app = _admin_app(bs)
             resp = app.get("/_datatypes")
             self.assertEqual(resp.status_code, 200)
             self.assertIn("TEXT", resp.json["datatypes"])
@@ -141,20 +152,20 @@ class TestDataTypesResource(unittest.TestCase):
     def test_get_mysqlConfigured_returnsList(self):
         bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
-            jwt=False,
+            jwt=JWT_KEY, dashboard=True,
             sqlite=False,
             sql={"host": "h", "user": "u", "password": "p", "database": "d"},
             gen_res=False,
             gen_db=False,
         )
-        app = webtest.TestApp(bs)
+        app = _admin_app(bs)
         resp = app.get("/_datatypes")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("VARCHAR(255)", resp.json["datatypes"])
 
     def test_options_isNoop(self):
         bs = Bottler(
-            cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+            cfg_file=NONEXISTENT_CFG, jwt=JWT_KEY, dashboard=True, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
         self.assertIsNone(DataTypes(bs).options())
@@ -162,13 +173,13 @@ class TestDataTypesResource(unittest.TestCase):
     def test_get_noSqlite_returnsEmptyBody(self):
         bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
-            jwt=False,
+            jwt=JWT_KEY, dashboard=True,
             sqlite=False,
             sql=False,
             gen_res=False,
             gen_db=False,
         )
-        app = webtest.TestApp(bs)
+        app = _admin_app(bs)
         resp = app.get("/_datatypes")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.body, b"")
@@ -179,12 +190,12 @@ class TestAllResourcesGet(unittest.TestCase):
         self.tmp_db = db_fixtures.temp_sqlite_copy()
         self.bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
-            jwt=False,
+            jwt=JWT_KEY, dashboard=True,
             sqlite=self.tmp_db,
             gen_res=False,
             gen_db=True,
         )
-        self.app = webtest.TestApp(self.bs)
+        self.app = _admin_app(self.bs)
 
     def tearDown(self):
         os.remove(self.tmp_db)
@@ -212,10 +223,10 @@ class TestAllResourcesGet(unittest.TestCase):
     def test_single_found_partialRolesConfigured_skipsExisting(self):
         path = self._writeCfg('[resources.animals.roles]\nget = true\n')
         bs = Bottler(
-            cfg_file=path, jwt=False, sqlite=self.tmp_db, gen_res=False,
+            cfg_file=path, jwt=JWT_KEY, dashboard=True, sqlite=self.tmp_db, gen_res=False,
             gen_db=True,
         )
-        app = webtest.TestApp(bs)
+        app = _admin_app(bs)
         resp = app.get("/_resources/animals")
         roles = {r["method"]: r["roles"] for r in resp.json["roles"]}
         self.assertEqual(roles["get"], True)
@@ -304,12 +315,12 @@ class TestAllResourcesPost(unittest.TestCase):
         try:
             bs = Bottler(
                 cfg_file=NONEXISTENT_CFG,
-                jwt=False,
+                jwt=JWT_KEY, dashboard=True,
                 sqlite=tmp_db,
                 gen_res=False,
                 gen_db=False,
             )
-            app = webtest.TestApp(bs)
+            app = _admin_app(bs)
             resp = app.post_json("/_resources", {"name": "newthing"})
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json["id"], "newthing")
@@ -320,7 +331,7 @@ class TestAllResourcesPost(unittest.TestCase):
     def test_post_mysqlConfigured_noopCharacterized(self):
         bs = Bottler(
             cfg_file=NONEXISTENT_CFG,
-            jwt=False,
+            jwt=JWT_KEY, dashboard=True,
             sqlite=False,
             sql={"host": "fake", "user": "u", "password": "p", "database": "d"},
             gen_res=False,
@@ -335,12 +346,12 @@ class TestAllResourcesPost(unittest.TestCase):
         try:
             bs = Bottler(
                 cfg_file=NONEXISTENT_CFG,
-                jwt=False,
+                jwt=JWT_KEY, dashboard=True,
                 sqlite=tmp_db,
                 gen_res=False,
                 gen_db=False,
             )
-            app = webtest.TestApp(bs)
+            app = _admin_app(bs)
             resp = app.post_json(
                 "/_resources", {"name": "bad name"}, expect_errors=True
             )
@@ -354,12 +365,12 @@ class TestAllResourcesPost(unittest.TestCase):
         try:
             bs = Bottler(
                 cfg_file=NONEXISTENT_CFG,
-                jwt=False,
+                jwt=JWT_KEY, dashboard=True,
                 sqlite=tmp_db,
                 gen_res=False,
                 gen_db=False,
             )
-            app = webtest.TestApp(bs)
+            app = _admin_app(bs)
             app.post_json("/_resources", {"name": "newthing"})
             resp = app.post_json(
                 "/_resources", {"name": "newthing"}, expect_errors=True
@@ -376,12 +387,12 @@ class TestAllResourcesPatch(unittest.TestCase):
         self.cfg_dir, self.cfg_path = db_fixtures.temp_cfg_pointing_at(self.tmp_db)
         self.bs = Bottler(
             cfg_file=self.cfg_path,
-            jwt=False,
+            jwt=JWT_KEY, dashboard=True,
             sqlite=self.tmp_db,
             gen_res=False,
             gen_db=True,
         )
-        self.app = webtest.TestApp(self.bs)
+        self.app = _admin_app(self.bs)
 
     def tearDown(self):
         os.remove(self.tmp_db)
@@ -523,12 +534,12 @@ class TestAllResourcesDelete(unittest.TestCase):
         self.cfg_dir, self.cfg_path = db_fixtures.temp_cfg_pointing_at(self.tmp_db)
         self.bs = Bottler(
             cfg_file=self.cfg_path,
-            jwt=False,
+            jwt=JWT_KEY, dashboard=True,
             sqlite=self.tmp_db,
             gen_res=False,
             gen_db=True,
         )
-        self.app = webtest.TestApp(self.bs)
+        self.app = _admin_app(self.bs)
 
     def tearDown(self):
         os.remove(self.tmp_db)
@@ -564,10 +575,10 @@ class TestPythonResources(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         os.chdir(self.tmp)
         self.bs = Bottler(
-            cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+            cfg_file=NONEXISTENT_CFG, jwt=JWT_KEY, dashboard=True, sqlite=False, sql=False,
             gen_res=False, gen_db=False,
         )
-        self.app = webtest.TestApp(self.bs)
+        self.app = _admin_app(self.bs)
 
     def tearDown(self):
         os.chdir(self.cwd)
@@ -712,12 +723,12 @@ class TestResourceRoles(unittest.TestCase):
         os.chdir(self.project_dir)
         self.bs = Bottler(
             cfg_file=self.cfg_path,
-            jwt=False,
+            jwt=JWT_KEY, dashboard=True,
             sqlite=self.tmp_db,
             gen_res=False,
             gen_db=True,
         )
-        self.app = webtest.TestApp(self.bs)
+        self.app = _admin_app(self.bs)
 
     def tearDown(self):
         os.chdir(self.orig_cwd)
@@ -760,10 +771,10 @@ class TestResourceRoles(unittest.TestCase):
         try:
             os.chdir(tmp)
             bs = Bottler(
-                cfg_file=NONEXISTENT_CFG, jwt=False, sqlite=False, sql=False,
+                cfg_file=NONEXISTENT_CFG, jwt=JWT_KEY, dashboard=True, sqlite=False, sql=False,
                 gen_res=False, gen_db=False,
             )
-            app = webtest.TestApp(bs)
+            app = _admin_app(bs)
             app.post_json("/_python_resources", {"name": "widget"})
             resp = app.get("/_roles")
             self.assertEqual(resp.status_code, 200)
