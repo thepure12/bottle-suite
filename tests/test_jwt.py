@@ -153,6 +153,17 @@ class TestJWT(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
 
+    def test_checkRoles_emptyList_deniesEveryone(self):
+        self.addProtected(roles=[])
+        token = valid_token(roles=["admin"])
+        resp = self.app.get(
+            "/protected",
+            headers={"Authorization": f"Bearer {token}"},
+            expect_errors=True,
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(self.app.get("/protected", expect_errors=True).status_code, 400)
+
     def test_checkRoles_callableRoles(self):
         self.addProtected(roles=lambda: ["admin"])
         token = valid_token(roles=["admin"])

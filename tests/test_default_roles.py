@@ -112,6 +112,51 @@ class TestDefaultRoles(unittest.TestCase):
         _, app = self._app("default_roles = true\n", resource=resource)
         self.assertEqual(app.get("/widgets").status_code, 200)
 
+    def test_emptyList_turnsMethodOff(self):
+        _, app = self._app("default_roles = true\n[resources.widgets.roles]\npost = []\n")
+        self.assertEqual(app.get("/widgets", headers=_auth()).status_code, 200)
+        self.assertEqual(
+            app.post("/widgets", headers=_auth(roles=["admin"]), expect_errors=True).status_code,
+            405,
+        )
+
+    def test_emptyList_allMethodsOff_noRoute(self):
+        _, app = self._app("[resources.widgets.roles]\nget = []\npost = []\n")
+        self.assertEqual(app.get("/widgets", expect_errors=True).status_code, 404)
+        self.assertEqual(app.options("/widgets", expect_errors=True).status_code, 404)
+
+    def test_emptyList_winsOverClassRoles(self):
+        resource = _makeResource()
+        resource.POST = {"roles": ["admin"]}
+        _, app = self._app("[resources.widgets.roles]\npost = []\n", resource=resource)
+        self.assertEqual(
+            app.post("/widgets", headers=_auth(roles=["admin"]), expect_errors=True).status_code,
+            405,
+        )
+
+    def test_emptyList_onClass_turnsMethodOff(self):
+        resource = _makeResource()
+        resource.POST = {"roles": []}
+        _, app = self._app(resource=resource)
+        self.assertEqual(app.post("/widgets", expect_errors=True).status_code, 405)
+
+    def test_emptyList_dbResource_writesOff(self):
+        tmp_db = db_fixtures.temp_sqlite_copy()
+        self.addCleanup(os.remove, tmp_db)
+        bs = Bottler(
+            cfg_file=self._writeCfg(
+                f'sqlite = "{tmp_db}"\ndefault_roles = true\n'
+                "[resources.animals.roles]\npost = []\nput = []\npatch = []\ndelete = []\n"
+            ),
+            gen_res=False, gen_db=True,
+        )
+        app = webtest.TestApp(bs)
+        self.assertEqual(app.get("/animals", headers=_auth()).status_code, 200)
+        for path in ("/animals", "/animals/1"):
+            for meth in ("post", "put", "patch", "delete"):
+                resp = getattr(app, meth)(path, headers=_auth(), expect_errors=True)
+                self.assertEqual(resp.status_code, 405, f"{meth} {path}")
+
     def test_optionsStaysOpen(self):
         _, app = self._app("default_roles = true\n")
         self.assertEqual(app.options("/widgets").status_code, 200)

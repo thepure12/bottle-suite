@@ -74,7 +74,7 @@ const columns = computed<TableColumn<Record<string, any>>[]>(() => {
         cell: ({ row }) => {
           const v = row.original.roles
           if (v === true) return 'Any token'
-          if (Array.isArray(v)) return v.length ? v.join(', ') : 'Public'
+          if (Array.isArray(v)) return v.length ? v.join(', ') : 'Off'
           return 'Public'
         },
       }

@@ -101,6 +101,12 @@ A resource is a subclass of `bottler.Resource`. Each method it defines
 (`options`, `get`, `post`, `put`, `patch`, `delete`) becomes a route for that
 HTTP method on every path the resource is added at.
 
+A resource in `resources/<name>.py` is served at `/<name>`, plus
+`/<name>/<key>` when one of its methods takes a `key` argument. Set
+`paths` under `[resources.<name>]` in `bottler.toml` to choose them
+yourself. If a database table has the same name, these paths win over its
+auto-generated routes.
+
 Method arguments are filled from URL parameters and the JSON request body. If
 a required argument (one with no default) is missing from both, the request
 fails with `400 {"<name>": "This field is required"}`. Query-string values are
@@ -236,6 +242,20 @@ resource:
 [resources.spa.roles]
 get = false
 ```
+
+An empty list turns a method off: no role may call it, so it gets no route
+(405). In `[resources.<name>.roles]` it wins over roles set on the class.
+Use it to make an auto-generated database resource read-only:
+
+```toml
+[resources.batches.roles]
+post = []
+put = []
+patch = []
+delete = []
+```
+
+A path whose methods are all off (except `OPTIONS`) gets no route (404).
 
 `OPTIONS` never gets the default, so CORS preflight still works. The JWT
 `/token` route is unaffected.

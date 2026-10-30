@@ -32,6 +32,23 @@ class Items(Resource):
         return {"items": [r["name"] for r in db.fetchall()]}
 '''
 
+# Same items table, but a hand-written resource that takes `key`, like a
+# connector's own CRUD resource for one of its tables.
+KEYED_ITEMS_RESOURCE = '''
+from bottler import Resource
+
+
+class Items(Resource):
+    def options(self):
+        pass
+
+    def get(self, key=None):
+        return {"hand": key}
+
+    def patch(self, key, **fields):
+        return {"hand": key}
+'''
+
 ADMIN_RESOURCE = '''
 from bottler import Resource
 
@@ -78,7 +95,7 @@ class TestMounts(unittest.TestCase):
             if name.split(".")[0] in self.packages:
                 del sys.modules[name]
 
-    def _package(self, name, rows, extra_cfg="", init=PACKAGE_INIT, admin=False):
+    def _package(self, name, rows, extra_cfg="", init=PACKAGE_INIT, admin=False, items=ITEMS_RESOURCE):
         """A package <name> with resources/items.py, plus its config folder
         <tmp>/cfg/<name> holding bottler.toml and a sqlite DB whose
         items table contains `rows`."""
@@ -90,7 +107,7 @@ class TestMounts(unittest.TestCase):
         with open(os.path.join(res_dir, "__init__.py"), "w") as f:
             f.write("")
         with open(os.path.join(res_dir, "items.py"), "w") as f:
-            f.write(ITEMS_RESOURCE)
+            f.write(items)
         if admin:
             with open(os.path.join(res_dir, "admin.py"), "w") as f:
                 f.write(ADMIN_RESOURCE)
@@ -143,6 +160,19 @@ class TestMounts(unittest.TestCase):
         # items.py (hand-written) wins /items; the generated /items/<id>
         # route still comes from this mount's own DB.
         self.assertEqual(app.get("/d/items/1").json["name"], "d1")
+
+    def test_hand_resource_taking_key_wins_keyed_route(self):
+        # Without toml paths, a hand-written resource whose methods take
+        # `key` gets /items/<key> too, so the generated route for the items
+        # table never answers it.
+        self._package("pkg_k", ["k1"], items=KEYED_ITEMS_RESOURCE)
+        _, app = self._host('[mounts.k]\npackage = "pkg_k"\nbase_dir = "pkg_k"\n')
+        self.assertEqual(app.get("/k/items/1").json, {"hand": "1"})
+        self.assertEqual(app.patch_json("/k/items/1", {"name": "x"}).json, {"hand": "1"})
+        # The generated PUT isn't on that path either.
+        self.assertEqual(
+            app.put_json("/k/items/1", {"name": "x"}, expect_errors=True).status_code, 405
+        )
 
     def test_api_prefix_applies_to_mounts(self):
         self._package("pkg_e", ["e1"])

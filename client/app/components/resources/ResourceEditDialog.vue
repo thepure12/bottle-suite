@@ -96,9 +96,13 @@ const visibleKeys = computed(() => props.keys.filter((k) => {
 }))
 
 const localItem = reactive<Record<string, any>>({})
+// An empty role list turns the method off: the server registers no route.
+// So 'roles' mode with nothing picked yet needs its own flag to stay shown.
+const pickingRoles = ref(false)
 watch(() => props.item, (val) => {
   for (const key of Object.keys(localItem)) delete localItem[key]
   Object.assign(localItem, val)
+  pickingRoles.value = false
 }, { immediate: true, deep: true })
 
 const notnullBool = computed({
@@ -110,15 +114,21 @@ const roleModeItems = [
   { label: 'Public (no auth required)', value: 'public' },
   { label: 'Any token', value: 'any' },
   { label: 'Specific roles', value: 'roles' },
+  { label: 'Off (no route)', value: 'off' },
 ]
 const localRoleOptions = ref<string[]>([])
 
 watch(() => props.roleOptions, (v) => { localRoleOptions.value = [...(v ?? [])] }, { immediate: true })
 
-const roleMode = computed<'public' | 'any' | 'roles'>({
-  get: () => localItem.roles === true ? 'any' : Array.isArray(localItem.roles) ? 'roles' : 'public',
+const roleMode = computed<'public' | 'any' | 'roles' | 'off'>({
+  get: () => {
+    if (localItem.roles === true) return 'any'
+    if (!Array.isArray(localItem.roles)) return 'public'
+    return localItem.roles.length || pickingRoles.value ? 'roles' : 'off'
+  },
   set: (mode) => {
-    localItem.roles = mode === 'public' ? false : mode === 'any' ? true : [...roleList.value]
+    pickingRoles.value = mode === 'roles'
+    localItem.roles = mode === 'public' ? false : mode === 'any' ? true : mode === 'off' ? [] : [...roleList.value]
   },
 })
 

@@ -42,6 +42,15 @@ MOUNT_INHERITED = ("jwt", "cors", "rest", "dashboard", "openapi", "api_prefix")
 
 _MOUNT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
+
+def _takesKey(resource) -> bool:
+    """Whether any of the resource's methods has a `key` parameter."""
+    for meth in resource.Methods:
+        func = getattr(resource, meth.value.lower(), None)
+        if func and "key" in inspect.signature(func).parameters:
+            return True
+    return False
+
 # Column DEFAULT values are concatenated directly into DDL (neither sqlite3
 # nor pymysql support bind parameters inside ALTER TABLE), so only allow a
 # safe literal shape: NULL/CURRENT_TIMESTAMP, a bare number, or a
@@ -572,7 +581,14 @@ class Bottler(Bottle):
             try:
                 paths = self.cfg["resources"][module_name]["paths"]
             except:
-                paths = [f"/{module_name}"]
+                # Same default as a scaffolded resource when a method takes
+                # `key`, so /<name>/<key> reaches this class rather than the
+                # DB auto-CRUD route for a table of the same name.
+                paths = (
+                    resource_scaffold.defaultPaths(module_name)
+                    if _takesKey(resource)
+                    else [f"/{module_name}"]
+                )
             paths = [self.apiPath(p, prefix=resource.api_prefix) for p in paths]
             if package != "resources":
                 self._resetRouteConfig(resource)
@@ -639,18 +655,19 @@ class Bottler(Bottle):
         # Precedence: roles declared on the class > resources.<name>.roles >
         # default_roles. An explicit `false` in resources.<name>.roles still
         # counts as declared, so it opts that method out of default_roles.
+        # An empty list turns the method off (no route, see API.addResource);
+        # in toml it wins over the class's roles instead of adding to them.
         # OPTIONS never gets the default, so CORS preflight passes through.
         for meth in resource.Methods:
             route_cfg = resource.getRouteConfig(meth)
             try:
-                if "roles" in route_cfg:
-                    route_cfg["roles"] += self.cfg["resources"][name]["roles"][
-                        meth.value.lower()
-                    ]
+                cfg_roles = self.cfg["resources"][name]["roles"][meth.value.lower()]
+                if cfg_roles == []:
+                    route_cfg["roles"] = []
+                elif "roles" in route_cfg:
+                    route_cfg["roles"] += cfg_roles
                 else:
-                    route_cfg["roles"] = self.cfg["resources"][name]["roles"][
-                        meth.value.lower()
-                    ]
+                    route_cfg["roles"] = cfg_roles
             except KeyError as e:
                 pass
             except Exception as e:

@@ -45,6 +45,11 @@ class Resource(object):
         setattr(cls, method.value.upper(), cfg)
 
 
+def _isOff(cfg: dict) -> bool:
+    roles = cfg.get("roles")
+    return isinstance(roles, list) and not roles
+
+
 class API(object):
     name = "bottle-rest"
     api = 2
@@ -104,8 +109,18 @@ class API(object):
             if callable(resource):
                 resource = resource()
             # setattr(self, resource_cls.__name__, resource) Not sure if this is still needed
+            # Listed even when every method is off, so the dashboard's Roles
+            # page can still show it and turn it back on.
             self.resources.append(resource)
-            for method in resource.Methods:
+            # roles = [] means no role may call the method, so it gets no
+            # route at all (405). A rule left with only OPTIONS gets none (404).
+            methods = [
+                m for m in resource.Methods
+                if resource.getFunction(m) and not _isOff(resource.getRouteConfig(m))
+            ]
+            if all(m == resource.Methods.OPTIONS for m in methods):
+                methods = []
+            for method in methods:
                 func = resource.getFunction(method)
                 cfg = resource.getRouteConfig(method)
                 if func:

@@ -168,8 +168,9 @@ class JWTPlugin():
             if path in self.token_paths:
                 return self.handleTokenPath(path, route, **kwargs)
             else:
-                # Checking for roles
-                if roles:
+                # Checking for roles. An empty list means no role may call
+                # the route: checkRoles finds no overlap and denies.
+                if roles or isinstance(roles, list):
                     self.checkRoles(roles, route, decoded)
             return fn(*args, **kwargs)
         return _jwt
