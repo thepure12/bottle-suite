@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bottler"
-version = "0.0.21"
+version = "0.0.22"
 authors = [{ name = "TJ Renninger", email = "renninger12@gmail.com" }]
 description = "Scaffold and serve bottle.py apps with CORS, SQL, REST, JWT and an admin dashboard"
 readme = "README.md"
